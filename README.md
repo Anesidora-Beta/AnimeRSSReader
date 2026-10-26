@@ -13,6 +13,16 @@
 └──────────┴───────────────┴──────────────────────────┘
 ```
 
+## 界面预览
+
+| 浅色 · 全部更新 | 深色 · 全部更新 |
+|---|---|
+| ![浅色主题](preview/desktop-light.png) | ![深色主题](preview/desktop-dark.png) |
+
+| 关注某部番（保留 30 天） | 镜像状态（站挂了自动换入口） |
+|---|---|
+| ![关注列表](preview/watch-light.png) | ![镜像状态](preview/mirrors.png) |
+
 ## 它是什么
 
 | | 原仓库 | 本整合包 |
@@ -198,6 +208,8 @@ python3 app.py --lan          # Windows: start-windows.bat --lan
 启动后终端会打印一个 `http://192.168.x.x:8899/` 的地址，同一 WiFi 下用手机浏览器打开即可。
 界面在窄屏下会自动切换成：顶部栏 + 单列列表 + 全屏阅读页。
 
+<img src="preview/mobile.png" alt="手机端" width="320">
+
 ## 给别的阅读器订阅
 
 本应用同时还是一个标准 RSS 服务，把条目导出给手机上更顺手的阅读器也行：
@@ -262,6 +274,7 @@ anime-rss-reader/
 ├─ build_exe.py        单文件可执行打包
 ├─ build_icon.py       生成 icon.ico（纯标准库）
 ├─ icon.ico / icon.png 程序图标
+├─ preview/            README 用的界面截图
 ├─ dist/               打包产物（自己跑 build_exe.py 后生成）
 └─ data/               运行时生成
 ```
