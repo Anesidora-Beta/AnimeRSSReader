@@ -83,6 +83,31 @@ CREATE INDEX IF NOT EXISTS idx_items_added ON items (added DESC);
 CREATE INDEX IF NOT EXISTS idx_if_feed ON item_feeds (feed_id, item_id);
 CREATE INDEX IF NOT EXISTS idx_wi_watch ON watch_items (watch_id, seen DESC);
 CREATE INDEX IF NOT EXISTS idx_wi_exp ON watch_items (expires);
+
+-- 新番放送表：各平台抓回来、跨平台合并之后的一条番一行（payload 存整条 JSON）
+CREATE TABLE IF NOT EXISTS schedule (
+    id      TEXT PRIMARY KEY,
+    weekday INTEGER NOT NULL DEFAULT -1,
+    air_ts  INTEGER NOT NULL DEFAULT 0,
+    payload TEXT NOT NULL DEFAULT '{}'
+);
+
+-- 上一次抓放送表时各平台的结果，用来在界面上标「哪个源没取到」
+CREATE TABLE IF NOT EXISTS schedule_source (
+    id     TEXT PRIMARY KEY,
+    ok     INTEGER NOT NULL DEFAULT 0,
+    count  INTEGER NOT NULL DEFAULT 0,
+    error  TEXT NOT NULL DEFAULT '',
+    ms     INTEGER NOT NULL DEFAULT 0
+);
+
+-- 杂项键值（目前只放 schedule_updated）
+CREATE TABLE IF NOT EXISTS meta (
+    k TEXT PRIMARY KEY,
+    v TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_schedule_wd ON schedule (weekday, air_ts);
 """
 
 # 内置订阅源：等于把上游 feeds.json 的频道 + 分站频道一次性铺好
@@ -378,6 +403,25 @@ class Store:
                     " WHERE m.feed_id=?", (feed,)).fetchone()
         return r["t"] or 0
 
+    # ------------------------------------------------------------ 键值配置
+    def meta_get(self, k, default=""):
+        with self._lock:
+            r = self._db.execute("SELECT v FROM meta WHERE k=?", (k,)).fetchone()
+        return r["v"] if r is not None else default
+
+    def meta_set(self, k, v):
+        with self._lock:
+            self._db.execute("INSERT OR REPLACE INTO meta (k,v) VALUES (?,?)",
+                             (k, v if isinstance(v, str) else str(v)))
+            self._db.commit()
+
+    def meta_prefix(self, prefix=""):
+        """取某个前缀下的全部键值（设置项都存在 meta 里，前缀 s.）"""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT k, v FROM meta WHERE k LIKE ?", (prefix + "%",)).fetchall()
+        return {r["k"]: r["v"] for r in rows}
+
     # ------------------------------------------------------------ 关注列表
     @staticmethod
     def _words(s):
@@ -584,6 +628,48 @@ class Store:
                 cur = self._db.execute("UPDATE items SET read=1 WHERE read=0")
             self._db.commit()
         return cur.rowcount
+
+    # ------------------------------------------------------------ 放送表
+    def save_schedule(self, entries, sources, updated):
+        """整表替换：周历是「当季快照」，每次抓取都是新的完整结果"""
+        rows = [(e["id"], int(e.get("weekday", -1)), int(e.get("airTs") or 0),
+                 json.dumps(e, ensure_ascii=False)) for e in entries]
+        srcs = [(s["id"], 1 if s.get("ok") else 0, int(s.get("count") or 0),
+                 (s.get("error") or "")[:200], int(s.get("ms") or 0)) for s in sources]
+        with self._lock:
+            self._db.execute("DELETE FROM schedule")
+            self._db.executemany(
+                "INSERT OR REPLACE INTO schedule (id,weekday,air_ts,payload)"
+                " VALUES (?,?,?,?)", rows)
+            self._db.execute("DELETE FROM schedule_source")
+            self._db.executemany(
+                "INSERT OR REPLACE INTO schedule_source (id,ok,count,error,ms)"
+                " VALUES (?,?,?,?,?)", srcs)
+            self._db.execute(
+                "INSERT OR REPLACE INTO meta (k,v) VALUES ('schedule_updated',?)",
+                (str(int(updated)),))
+            self._db.commit()
+
+    def load_schedule(self):
+        with self._lock:
+            rows = self._db.execute("SELECT payload FROM schedule").fetchall()
+            srcs = self._db.execute(
+                "SELECT * FROM schedule_source").fetchall()
+            meta = self._db.execute(
+                "SELECT v FROM meta WHERE k='schedule_updated'").fetchone()
+        entries = []
+        for r in rows:
+            try:
+                entries.append(json.loads(r["payload"]))
+            except Exception:
+                continue
+        try:
+            updated = int(meta["v"]) if meta else 0
+        except (TypeError, ValueError):
+            updated = 0
+        sources = [{"id": s["id"], "ok": bool(s["ok"]), "count": s["count"],
+                    "error": s["error"], "ms": s["ms"]} for s in srcs]
+        return {"entries": entries, "sources": sources, "updated": updated}
 
     # ------------------------------------------------------------ 维护
     def prune(self, days=KEEP_DAYS, cap=KEEP_MAX):

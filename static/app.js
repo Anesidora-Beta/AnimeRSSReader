@@ -23,6 +23,7 @@
     watches: [],
     editingWatch: null,
     counts: { total: 0, unread: 0, starred: 0, feeds: {}, watches: {} },
+    view: "items",                                           // items | schedule
     filter: localStorage.getItem("arr.filter") || "all",     // all | unread | starred
     feed: localStorage.getItem("arr.feed") || "all",
     q: "",
@@ -193,11 +194,13 @@
   function syncNav() {
     $$(".nav-item").forEach(function (el) {
       var nav = el.dataset.nav;
-      var active = state.feed === "all" && state.filter === nav;
+      var active = nav === "schedule"
+        ? state.view === "schedule"
+        : (state.view !== "schedule" && state.feed === "all" && state.filter === nav);
       el.classList.toggle("active", active);
     });
     $$(".feed-item").forEach(function (el) {
-      el.classList.toggle("active", state.feed === el.dataset.feed);
+      el.classList.toggle("active", state.view !== "schedule" && state.feed === el.dataset.feed);
     });
   }
 
@@ -206,6 +209,11 @@
     $("#cUnread").textContent = c.unread || 0;
     $("#cAll").textContent = c.total || 0;
     $("#cStar").textContent = c.starred || 0;
+    if (SCH.data && SCH.data.stats) {
+      $("#cToday").textContent = SCH.data.stats.today || 0;
+    } else if (state.boot && state.boot.schedule) {
+      $("#cToday").textContent = state.boot.schedule.today || 0;
+    }
     var per = c.feeds || {};
     var wper = c.watches || {};
     $$(".feed-item").forEach(function (el) {
@@ -387,7 +395,7 @@
       return;
     }
     renderArticle(it);
-    if (!opts.silent) markRead(it, true);
+    if (!opts.silent && SET.values.autoRead !== false) markRead(it, true);
     openReader();
     var row = $('.row[data-id="' + CSS.escape(id) + '"]');
     if (row && opts.scroll !== false) row.scrollIntoView({ block: "nearest" });
@@ -689,12 +697,593 @@
     });
   }
 
+  /* ------------------------------------------------------------ 设置 */
+
+  var SET = {
+    values: {},
+    schema: [],
+    info: {},
+    group: "",
+    loaded: false,
+    saveTimer: null,
+    pending: {},
+    notifyTimer: null,
+    seen: {}
+  };
+
+  function applyClientSettings() {
+    var v = SET.values || {};
+    if (v.theme) applyTheme(v.theme);
+    document.documentElement.setAttribute("data-fs", v.fontSize || "m");
+    document.documentElement.setAttribute("data-density", v.density || "cozy");
+    startNotifyTimer();
+  }
+
+  function openSettings() {
+    openModal("#modalSettings");
+    if (SET.loaded) {
+      renderSetNav();
+      renderSetPanes();
+    } else {
+      $("#setPanes").innerHTML = '<div class="set-loading">正在读取设置…</div>';
+      get("/api/settings").then(function (d) {
+        if (!d.ok) { $("#setPanes").innerHTML = '<div class="set-loading">读取失败</div>'; return; }
+        fillSettings(d);
+      });
+    }
+  }
+
+  function fillSettings(d) {
+    SET.values = d.values || SET.values;
+    if (d.schema && d.schema.length) SET.schema = d.schema;   // 恢复默认时不带 schema
+    SET.info = d.info || SET.info;
+    SET.loaded = true;
+    if (!SET.group) SET.group = (SET.schema[0] || {}).group || "";
+    renderSetNav();
+    renderSetPanes();
+    applyClientSettings();
+  }
+
+  function renderSetNav() {
+    var html = SET.schema.map(function (g) {
+      return '<button data-g="' + esc(g.group) + '"' +
+        (g.group === SET.group ? ' class="active"' : "") + ">" + esc(g.title) + "</button>";
+    }).join("");
+    html += '<button data-g="about"' +
+      (SET.group === "about" ? ' class="active"' : "") + ">关于与维护</button>";
+    $("#setNav").innerHTML = html;
+  }
+
+  function setItemRow(it) {
+    var v = SET.values[it.k];
+    var ctrl = "";
+    if (it.type === "switch") {
+      ctrl = '<button class="sw' + (v ? " on" : "") + '" role="switch"' +
+        ' aria-checked="' + (v ? "true" : "false") + '"' +
+        ' data-k="' + esc(it.k) + '" data-t="switch"><i></i></button>';
+    } else if (it.type === "number") {
+      ctrl = '<span class="num"><input type="number" data-k="' + esc(it.k) + '" data-t="number"' +
+        ' min="' + it.min + '" max="' + it.max + '" step="' + (it.step || 1) + '"' +
+        ' value="' + esc(v) + '"><em>' + esc(it.unit || "") + "</em></span>";
+    } else if (it.type === "select") {
+      ctrl = '<select data-k="' + esc(it.k) + '" data-t="select">' +
+        (it.options || []).map(function (o) {
+          return '<option value="' + esc(o.value) + '"' +
+            (String(o.value) === String(v) ? " selected" : "") + ">" + esc(o.label) + "</option>";
+        }).join("") + "</select>";
+    } else if (it.type === "checks") {
+      var arr = v || [];
+      ctrl = '<span class="chks">' + (it.options || []).map(function (o) {
+        var on = arr.indexOf(o.value) >= 0;
+        return '<button class="chk' + (on ? " on" : "") + '" data-k="' + esc(it.k) +
+          '" data-v="' + esc(o.value) + '" data-t="check"' +
+          ' aria-pressed="' + (on ? "true" : "false") + '">' + esc(o.label) + "</button>";
+      }).join("") + "</span>";
+    }
+    return '<div class="set-row" data-row="' + esc(it.k) + '"' +
+      (it.depends ? ' data-dep="' + esc(it.depends) + '"' : "") + ">" +
+      '<div class="set-label"><b>' + esc(it.label) + "</b>" +
+      (it.desc ? "<span>" + esc(it.desc) + "</span>" : "") + "</div>" +
+      '<div class="set-ctrl">' + ctrl + "</div></div>";
+  }
+
+  function renderSetPanes() {
+    if (SET.group === "about") {
+      $("#setPanes").innerHTML = aboutPaneHTML();
+      return;
+    }
+    var g = SET.schema.filter(function (x) { return x.group === SET.group; })[0];
+    if (!g) { $("#setPanes").innerHTML = ""; return; }
+    var html = '<section class="set-pane">' +
+      (g.note ? '<p class="set-note">' + esc(g.note) + "</p>" : "") +
+      g.items.map(setItemRow).join("") + "</section>";
+    if (g.group === "fetch") html += refreshHintHTML();
+    $("#setPanes").innerHTML = html;
+    syncDeps();
+  }
+
+  function refreshHintHTML() {
+    var next = (SET.info && SET.info.nextRefresh) || 0;
+    var txt = next ? "下次自动刷新约在 " + fullTime(next) + "（服务端计时，关掉页面也会继续）"
+      : "自动刷新已关闭";
+    return '<p class="set-hint">' + esc(txt) + "</p>";
+  }
+
+  function aboutPaneHTML() {
+    var i = SET.info || {};
+    var st = i.stats || {};
+    var rows = [
+      ["版本", i.version || "—"],
+      ["访问地址", "http://127.0.0.1:" + (i.port || "") + "/"],
+      ["局域网", i.lanUrl || (i.lan ? "已开启" : "未开启（--lan 可开启）")],
+      ["数据文件", i.dbPath || "—"],
+      ["条目 / 订阅源", (st.items || 0) + " 条 · " + (st.feeds || 0) + " 个源"],
+      ["数据库大小", fmtBytes(st.dbBytes || 0)],
+      ["已运行", Math.floor((i.uptime || 0) / 60) + " 分钟"]
+    ];
+    return '<section class="set-pane">' +
+      '<p class="set-note">清理只删除超过保留天数的未收藏条目，收藏和关注命中都会保留。</p>' +
+      '<div class="kv">' + rows.map(function (r) {
+        return '<div><span>' + esc(r[0]) + "</span><b>" + esc(r[1]) + "</b></div>";
+      }).join("") + "</div>" +
+      '<div class="set-actions">' +
+      '<button class="ghost-btn" id="btnClean">立即清理旧条目</button>' +
+      '<button class="ghost-btn" id="btnVacuum">压缩数据库</button>' +
+      "</div></section>";
+  }
+
+  function fmtBytes(n) {
+    if (!n) return "0 B";
+    var u = ["B", "KB", "MB", "GB"], i = 0;
+    while (n >= 1024 && i < u.length - 1) { n = n / 1024; i++; }
+    return (i ? n.toFixed(1) : n) + " " + u[i];
+  }
+
+  // 「自动刷新」关掉时，把下面的间隔置灰
+  function syncDeps() {
+    var v = SET.values;
+    $$("#setPanes [data-dep]").forEach(function (el) {
+      var off = !v[el.dataset.dep];
+      el.classList.toggle("disabled", off);
+      $$("input,select,button", el).forEach(function (c) { c.disabled = off; });
+    });
+  }
+
+  function queueSave(k, val) {
+    SET.values[k] = val;
+    SET.pending[k] = val;
+    applyClientSettings();
+    syncDeps();
+    clearTimeout(SET.saveTimer);
+    SET.saveTimer = setTimeout(flushSettings, 280);
+  }
+
+  function flushSettings() {
+    if (!Object.keys(SET.pending).length) return;
+    var patch = SET.pending;
+    SET.pending = {};
+    send("POST", "/api/settings", { values: patch }).then(function (r) {
+      if (!r.ok) { toast(r.error || "保存失败"); return; }
+      SET.values = r.values || SET.values;
+      SET.info = r.info || SET.info;
+      $$('#setPanes input[data-k]').forEach(function (inp) {
+        var k = inp.dataset.k;
+        if (document.activeElement !== inp && String(SET.values[k]) !== inp.value) {
+          inp.value = SET.values[k];
+        }
+      });
+      var hint = $("#setPanes .set-hint");
+      if (hint && SET.group === "fetch") hint.outerHTML = refreshHintHTML();
+    }).catch(function () { toast("保存失败，检查服务是否在运行"); });
+  }
+
+  function startNotifyTimer() {
+    clearInterval(SET.notifyTimer);
+    if (!SET.values.airingNotify || !("Notification" in window)) return;
+    if (Notification.permission === "default") {
+      try { Notification.requestPermission(); } catch (e) { /* 老浏览器忽略 */ }
+    }
+    SET.notifyTimer = setInterval(checkAiring, 60000);
+  }
+
+  function checkAiring() {
+    if (!SET.values.airingNotify) return;
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+    if (!SCH.data || !SCH.data.upcoming) return;
+    var now = Date.now() / 1000;
+    SCH.data.upcoming.forEach(function (it) {
+      var t = it.nextTs || 0;
+      if (!t || SET.seen[it.id]) return;
+      var d = t - now;
+      if (d > 0 && d <= 600) {
+        SET.seen[it.id] = 1;
+        try {
+          new Notification("即将开播 · " + it.title, {
+            body: (it.time || "") + " 开始，第 " + (it.episode || 1) + " 集",
+            tag: "air-" + it.id
+          });
+        } catch (e) { /* 通知被系统拦了就算了 */ }
+      }
+    });
+  }
+
+  function runMaintenance(action) {
+    var btn = action === "clean" ? $("#btnClean") : $("#btnVacuum");
+    if (btn) { btn.disabled = true; btn.textContent = "处理中…"; }
+    send("POST", "/api/maintenance", { action: action, vacuum: true }).then(function (r) {
+      if (!r.ok) { toast(r.error || "操作失败"); renderSetPanes(); return; }
+      SET.info.stats = r.stats || SET.info.stats;
+      if (action === "clean") {
+        toast("已清理 " + (r.removed || 0) + " 条旧条目");
+        get("/api/bootstrap").then(function (b) {
+          if (!b || !b.ok) return;
+          state.counts = b.counts;
+          updateCounts();
+          loadItems(true);
+        });
+      } else {
+        toast("数据库已压缩");
+      }
+      renderSetPanes();
+    }).catch(function () {
+      toast("操作失败，检查服务是否在运行");
+      renderSetPanes();
+    });
+  }
+
+  /* ------------------------------------------------------------ 新番放送表 */
+
+  var WEEK_LABEL = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+
+  var SCH = {
+    data: null,
+    loading: false,
+    day: (new Date().getDay() + 6) % 7,   // JS 里 0 是周日，这里换成 0=周一
+    plat: "",
+    q: "",
+    current: null,
+    timer: null,
+    poll: null
+  };
+
+  function platMap() {
+    var m = {};
+    ((SCH.data && SCH.data.platforms) || []).forEach(function (p) { m[p.id] = p; });
+    return m;
+  }
+
+  function untilText(ts) {
+    var d = ts - Date.now() / 1000;
+    if (d <= 0) return "已开播";
+    if (d < 3600) return Math.max(1, Math.round(d / 60)) + " 分钟后";
+    if (d < 86400) return Math.round(d / 3600) + " 小时后";
+    return Math.round(d / 86400) + " 天后";
+  }
+
+  function switchView(v) {
+    state.view = v;
+    $("#app").classList.toggle("schedule-mode", v === "schedule");
+    if (v === "schedule") {
+      closeSidebar();
+      syncNav();
+      loadSchedule(false);
+    } else {
+      syncNav();
+    }
+  }
+
+  function loadSchedule(force) {
+    if (SCH.loading) return;
+    SCH.loading = true;
+    if (force) toast("正在从各平台抓取放送表…");
+    get("/api/schedule" + (force ? "?refresh=1" : "")).then(function (res) {
+      SCH.loading = false;
+      if (!res.ok) { toast(res.error || "读取放送表失败"); return; }
+      SCH.data = res;
+      renderSchedule();
+      if (res.refreshing) pollSchedule();
+    }).catch(function (e) {
+      SCH.loading = false;
+      $("#schGrid").innerHTML =
+        '<div class="sch-loading">连不上本地服务：' + esc(e.message) + "</div>";
+    });
+  }
+
+  function pollSchedule() {
+    clearTimeout(SCH.poll);
+    SCH.poll = setTimeout(function () {
+      get("/api/schedule/status").then(function (s) {
+        if (s && s.running) { pollSchedule(); return; }
+        SCH.loading = false;
+        loadSchedule(false);
+        if (s && s.message) toast(s.message);
+      }).catch(function () { pollSchedule(); });
+    }, 1200);
+  }
+
+  function renderSchedule() {
+    var d = SCH.data || {};
+    var st = d.stats || {};
+    var srcs = d.sources || [];
+    var bad = srcs.filter(function (s) { return !s.ok; });
+    var ok = srcs.filter(function (s) { return s.ok; });
+
+    $("#schSrcLabel").textContent = "来源 " + ok.length + "/" + srcs.length;
+    $("#cToday").textContent = st.today || 0;
+
+    var bits = [];
+    if (st.total) bits.push(st.total + " 部在放送");
+    if (st.today) bits.push("今天 " + st.today + " 部");
+    if (d.updated) bits.push("更新于 " + timeAgo(d.updated) + " · " + (d.timezone || "UTC+8"));
+    if (d.refreshing) bits.push("正在刷新…");
+    else if (bad.length) bits.push(bad.length + " 个平台没取到");
+    $("#schSub").textContent = bits.length ? bits.join(" · ") : "还没有数据";
+
+    renderSchChips();
+    renderSchWeek();
+    renderSchGrid();
+    renderSchSoon();
+
+    clearInterval(SCH.timer);
+    SCH.timer = setInterval(renderSchSoon, 30000);
+  }
+
+  function renderSchChips() {
+    var d = SCH.data || {};
+    var st = d.stats || {};
+    var by = st.byPlatform || {};
+    var list = [{ id: "", name: "全部", n: st.total || 0 }];
+    (d.platforms || []).forEach(function (p) {
+      list.push({ id: p.id, name: p.short || p.name, n: by[p.id] || 0,
+                  color: p.color, full: p.name });
+    });
+    $("#schChips").innerHTML = list.map(function (c) {
+      return '<button class="chip' + (SCH.plat === c.id ? " on" : "") +
+        '" data-plat="' + esc(c.id) + '"' +
+        (c.full ? ' title="' + esc(c.full) + " · " + c.n + ' 部"' : "") + ">" +
+        (c.color ? '<i style="background:' + c.color + '"></i>' : "") +
+        esc(c.name) + (c.n ? "<em>" + c.n + "</em>" : "") + "</button>";
+    }).join("");
+  }
+
+  function renderSchWeek() {
+    var days = (SCH.data && SCH.data.days) || [];
+    $("#schWeek").innerHTML = days.map(function (d) {
+      return '<button class="daytab' + (SCH.day === d.weekday ? " on" : "") +
+        (d.isToday ? " today" : "") + '" data-day="' + d.weekday + '">' +
+        "<b>" + esc(d.label) + "</b>" +
+        (d.date ? "<span>" + esc(d.date) + "</span>" : "") +
+        "<em>" + filterDay(d).length + "</em></button>";
+    }).join("");
+  }
+
+  function filterDay(day) {
+    var q = (SCH.q || "").toLowerCase();
+    return (day.items || []).filter(function (it) {
+      if (SCH.plat && (it.via || [it.platform]).indexOf(SCH.plat) < 0) return false;
+      if (!q) return true;
+      var hay = [it.title, it.titleCn, it.titleJp, it.titleEn]
+        .join(" ").toLowerCase();
+      return hay.indexOf(q) >= 0;
+    });
+  }
+
+  function animeKeyword(it) {
+    return (it.titleCn || it.title || "").trim();
+  }
+
+  function watchOfTitle(it) {
+    var kw = animeKeyword(it).toLowerCase();
+    if (!kw) return null;
+    return (state.watches || []).filter(function (w) {
+      return (w.include || "").trim().toLowerCase() === kw;
+    })[0] || null;
+  }
+
+  function schCard(it) {
+    var pm = platMap();
+    var cover = it.cover
+      ? '<img src="' + esc(it.cover) + '" alt="" loading="lazy" ' +
+        'referrerpolicy="no-referrer" onerror="this.remove()">'
+      : "";
+    var via = (it.via || [it.platform]).map(function (pid) {
+      var p = pm[pid] || {};
+      return '<span class="pchip" title="' + esc(p.name || pid) + '">' +
+        '<i style="background:' + (p.color || "#8d96a4") + '"></i>' +
+        esc(p.short || pid) + "</span>";
+    }).join("");
+    var eps = it.episode
+      ? ("第" + it.episode + "话" + (it.episodes ? "/" + it.episodes : ""))
+      : (it.episodes ? it.episodes + " 话" : "");
+    return '<article class="sch-card' + (it.soon ? " soon" : "") +
+      '" data-anime="' + esc(it.id) + '" tabindex="0">' +
+      '<div class="sch-cover" data-ch="' + esc((it.title || "?").charAt(0)) + '">' +
+      cover + "</div>" +
+      '<div class="sch-info">' +
+      '<div class="sch-name">' + esc(it.title) + "</div>" +
+      '<div class="sch-meta"><span class="sch-time">' + esc(it.time || "待定") + "</span>" +
+      (eps ? "<span>" + esc(eps) + "</span>" : "") + "</div>" +
+      '<div class="sch-pchips">' + via + "</div></div>" +
+      '<span class="sch-star' + (watchOfTitle(it) ? " on" : "") +
+      '" data-star-anime="' + esc(it.id) + '" title="加入关注">★</span>' +
+      "</article>";
+  }
+
+  function renderSchGrid() {
+    var days = (SCH.data && SCH.data.days) || [];
+    $("#schGrid").innerHTML = days.map(function (day) {
+      var rows = filterDay(day);
+      var cards = rows.map(schCard).join("") ||
+        '<div class="sch-none">' + (day.count ? "没有符合筛选的番" : "没有放送") + "</div>";
+      return '<section class="sch-col' + (day.isToday ? " today" : "") +
+        (SCH.day === day.weekday ? " active" : "") + '" data-day="' + day.weekday + '">' +
+        '<div class="sch-col-head"><b>' + esc(day.label) + "</b>" +
+        (day.date ? "<span>" + esc(day.date) + "</span>" : "") +
+        "<em>" + rows.length + "</em></div>" +
+        '<div class="sch-cards">' + cards + "</div></section>";
+    }).join("");
+
+    var total = days.reduce(function (n, d) { return n + filterDay(d).length; }, 0);
+    var empty = $("#schEmpty");
+    empty.hidden = total > 0;
+    if (!total) {
+      empty.innerHTML = (SCH.data && SCH.data.stats && SCH.data.stats.total)
+        ? "<b>没有符合筛选的番</b>换个平台，或者清空搜索词试试。"
+        : "<b>这里还没有放送表</b>点右上角的刷新按钮，从哔哩哔哩 / Bangumi / AniList 抓一份当季番表。";
+    }
+  }
+
+  function renderSchSoon() {
+    var up = (SCH.data && SCH.data.upcoming) || [];
+    var pm = platMap();
+    var box = $("#schSoon");
+    if (!up.length) { box.hidden = true; return; }
+    box.hidden = false;
+    box.innerHTML = '<div class="soon-label">接下来</div>' +
+      up.slice(0, 8).map(function (it) {
+        var p = pm[it.platform] || {};
+        return '<button class="soon-item" data-anime="' + esc(it.id) + '">' +
+          '<span class="soon-when">' + esc(untilText(it.nextTs)) + "</span>" +
+          '<span class="soon-title">' + esc(it.title) + "</span>" +
+          '<span class="soon-meta">' +
+          (it.weekday >= 0 ? esc(WEEK_LABEL[it.weekday]) + " " + esc(it.time || "") + " · " : "") +
+          (it.episode ? "第" + it.episode + "话" : "新一集") + "</span>" +
+          '<i class="soon-dot" style="background:' + (p.color || "#8d96a4") + '"></i>' +
+          "</button>";
+      }).join("");
+  }
+
+  function findAnime(id) {
+    var days = (SCH.data && SCH.data.days) || [];
+    for (var i = 0; i < days.length; i++) {
+      var items = days[i].items || [];
+      for (var j = 0; j < items.length; j++) {
+        if (items[j].id === id) return items[j];
+      }
+    }
+    for (var k = 0; k < ((SCH.data && SCH.data.upcoming) || []).length; k++) {
+      if (SCH.data.upcoming[k].id === id) return SCH.data.upcoming[k];
+    }
+    return null;
+  }
+
+  function openAnime(id) {
+    var it = findAnime(id);
+    if (!it) return;
+    SCH.current = it;
+    var pm = platMap();
+
+    $("#anCover").innerHTML = it.cover
+      ? '<img src="' + esc(it.cover) + '" alt="" referrerpolicy="no-referrer" ' +
+        'onerror="this.remove()">'
+      : "";
+    $("#anCover").setAttribute("data-ch", (it.title || "?").charAt(0));
+
+    var bits = [];
+    bits.push(it.weekday >= 0
+      ? WEEK_LABEL[it.weekday] + " " + (it.time || "时间待定")
+      : "放送时间待定");
+    if (it.nextTs) bits.push(untilText(it.nextTs) + "更新");
+    if (it.episode) {
+      bits.push("第 " + it.episode + " 话" + (it.episodes ? " / 共 " + it.episodes + " 话" : ""));
+    } else if (it.episodes) {
+      bits.push("共 " + it.episodes + " 话");
+    }
+    if (it.score) bits.push("★ " + it.score);
+    if (it.kind) bits.push(it.kind);
+    $("#anSub").textContent = bits.join(" · ");
+
+    $("#anTitle").textContent = it.title;
+    $("#anLinks").innerHTML = (it.links || []).map(function (l) {
+      var p = pm[l.id] || {};
+      return '<a class="anime-link" href="' + esc(l.url) + '" target="_blank" rel="noopener">' +
+        '<i style="background:' + (p.color || "#8d96a4") + '"></i>' +
+        esc(l.full || l.name) + "</a>";
+    }).join("");
+
+    var alias = [];
+    if (it.titleJp && it.titleJp !== it.title) alias.push("日文名：" + it.titleJp);
+    if (it.titleEn && it.titleEn !== it.title) alias.push("英文名：" + it.titleEn);
+    var via = (it.via || []).map(function (pid) {
+      var p = pm[pid] || {};
+      return p.name || pid;
+    });
+    if (via.length > 1) alias.push("合并自 " + via.join(" + "));
+    $("#anNote").textContent = alias.join("　");
+
+    var w = watchOfTitle(it);
+    $("#anWatch").textContent = w ? "已在关注列表" : "关注这部番";
+    $("#anWatch").disabled = !!w;
+    openModal("#modalAnime");
+  }
+
+  function watchAnime(it) {
+    it = it || SCH.current;
+    if (!it) return;
+    if (watchOfTitle(it)) { toast("已经在关注列表里了"); return; }
+    var kw = animeKeyword(it);
+    if (!kw) return;
+    send("POST", "/api/watches", { name: kw, include: kw }).then(function (r) {
+      if (!r.ok) { toast(r.error || "关注失败"); return; }
+      state.watches = r.watches || state.watches;
+      state.counts = r.counts || state.counts;
+      renderSidebar();
+      updateCounts();
+      renderSchedule();
+      if (SCH.current && SCH.current.id === it.id) openAnime(it.id);
+      toast(r.hits ? "已关注，命中 " + r.hits + " 条资源"
+                   : "已关注，下次抓取时会挑出来");
+    }).catch(function (e) { toast("关注失败：" + e.message); });
+  }
+
+  function toggleWatchAnimeById(id) {
+    var it = findAnime(id);
+    if (it) watchAnime(it);
+  }
+
+  function searchAnime() {
+    var it = SCH.current;
+    if (!it) return;
+    var kw = animeKeyword(it);
+    closeModal("#modalAnime");
+    switchView("items");
+    state.feed = "all";
+    state.filter = "all";
+    state.q = kw;
+    $("#q").value = kw;
+    localStorage.setItem("arr.feed", "all");
+    localStorage.setItem("arr.filter", "all");
+    syncNav();
+    loadItems(true);
+    toast("正在资源里搜「" + kw + "」");
+  }
+
+  function showSchSources() {
+    var srcs = (SCH.data && SCH.data.sources) || [];
+    $("#schSrcList").innerHTML = srcs.map(function (s) {
+      var cls = s.ok ? "ok" : (s.cached ? "idle" : "bad");
+      var label = s.ok ? (s.count + " 部") : (s.cached ? "已跳过" : "失败");
+      return '<div class="mirror-row"><div class="mirror-name">' + esc(s.name) + "</div>" +
+        '<div class="mirror-hosts"><span class="host ' + cls + '" title="' +
+        esc(s.error || s.note || "") + '">' + esc(s.short || s.id) +
+        "<i>" + esc(label) + "</i></span>" +
+        (s.ms ? '<span class="host idle" title="耗时">' + s.ms + "ms</span>" : "") +
+        "</div></div>";
+    }).join("") || '<div class="mirror-loading">还没有抓过</div>';
+    openModal("#modalSchSrc");
+  }
+
   /* ------------------------------------------------------------ 事件 */
 
   function bind() {
     // 侧栏导航
     $$(".nav-item").forEach(function (el) {
       el.addEventListener("click", function () {
+        if (el.dataset.nav === "schedule") {
+          switchView("schedule");
+          return;
+        }
+        if (state.view !== "items") switchView("items");
         state.filter = el.dataset.nav;
         state.feed = "all";
         localStorage.setItem("arr.filter", state.filter);
@@ -763,6 +1352,7 @@
 
       var feedEl = e.target.closest(".feed-item");
       if (feedEl) {
+        if (state.view !== "items") switchView("items");
         state.feed = feedEl.dataset.feed;
         localStorage.setItem("arr.feed", state.feed);
         syncNav();
@@ -841,7 +1431,9 @@
     // 主题循环：自动 → 浅色 → 深色
     $("#btnTheme").addEventListener("click", function () {
       var order = ["auto", "light", "dark"];
-      applyTheme(order[(order.indexOf(state.theme) + 1) % 3]);
+      var next = order[(order.indexOf(state.theme) + 1) % 3];
+      applyTheme(next);
+      if (SET.loaded) queueSave("theme", next);
     });
 
     // 导出
@@ -876,6 +1468,130 @@
     // 镜像状态
     $("#btnMirror").addEventListener("click", showMirrors);
     $("#mirrorClose").addEventListener("click", function () { closeModal("#modalMirror"); });
+
+    // 设置
+    $("#btnSettings").addEventListener("click", openSettings);
+    $("#setClose").addEventListener("click", function () { closeModal("#modalSettings"); });
+    $("#setReset").addEventListener("click", function () {
+      send("POST", "/api/settings/reset", {}).then(function (r) {
+        if (!r.ok) { toast(r.error || "操作失败"); return; }
+        fillSettings(r);
+        toast("已恢复默认设置");
+      });
+    });
+    $("#setNav").addEventListener("click", function (e) {
+      var b = e.target.closest("button[data-g]");
+      if (!b) return;
+      SET.group = b.dataset.g;
+      renderSetNav();
+      renderSetPanes();
+    });
+
+    $("#setPanes").addEventListener("click", function (e) {
+      var sw = e.target.closest(".sw");
+      if (sw) {
+        var k = sw.dataset.k;
+        var on = !SET.values[k];
+        sw.classList.toggle("on", on);
+        sw.setAttribute("aria-checked", on ? "true" : "false");
+        queueSave(k, on);
+        return;
+      }
+      var chk = e.target.closest(".chk");
+      if (chk) {
+        var key = chk.dataset.k;
+        var arr = (SET.values[key] || []).slice();
+        var i = arr.indexOf(chk.dataset.v);
+        if (i >= 0) {
+          if (arr.length === 1) { toast("至少保留一个来源"); return; }
+          arr.splice(i, 1);
+        } else {
+          arr.push(chk.dataset.v);
+        }
+        chk.classList.toggle("on", arr.indexOf(chk.dataset.v) >= 0);
+        chk.setAttribute("aria-pressed", arr.indexOf(chk.dataset.v) >= 0 ? "true" : "false");
+        queueSave(key, arr);
+        return;
+      }
+      if (e.target.closest("#btnClean")) {
+        runMaintenance("clean");
+        return;
+      }
+      if (e.target.closest("#btnVacuum")) {
+        runMaintenance("vacuum");
+      }
+    });
+
+    $("#setPanes").addEventListener("change", function (e) {
+      var el = e.target;
+      if (!el.dataset || !el.dataset.k) return;
+      if (el.dataset.t === "select") {
+        queueSave(el.dataset.k, el.value);
+      } else if (el.dataset.t === "number") {
+        queueSave(el.dataset.k, parseInt(el.value, 10) || 0);
+      }
+    });
+
+    // 新番放送表
+    $("#btnMenuSch").addEventListener("click", openSidebar);
+    $("#btnSchRefresh").addEventListener("click", function () { loadSchedule(true); });
+    $("#btnSchRefreshM").addEventListener("click", function () { loadSchedule(true); });
+    $("#btnSchSources").addEventListener("click", showSchSources);
+    $("#schSrcClose").addEventListener("click", function () { closeModal("#modalSchSrc"); });
+
+    $("#schChips").addEventListener("click", function (e) {
+      var chip = e.target.closest("[data-plat]");
+      if (!chip) return;
+      SCH.plat = chip.dataset.plat;
+      renderSchChips();
+      renderSchGrid();
+      renderSchWeek();
+    });
+
+    $("#schWeek").addEventListener("click", function (e) {
+      var tab = e.target.closest("[data-day]");
+      if (!tab) return;
+      SCH.day = parseInt(tab.dataset.day, 10);
+      renderSchWeek();
+      renderSchGrid();
+      var col = $('.sch-col[data-day="' + SCH.day + '"]');
+      if (col) col.scrollIntoView({ block: "nearest" });
+    });
+
+    var schQTimer = null;
+    $("#schQ").addEventListener("input", function (e) {
+      SCH.q = e.target.value.trim();
+      clearTimeout(schQTimer);
+      schQTimer = setTimeout(function () {
+        renderSchGrid();
+        renderSchWeek();
+      }, 200);
+    });
+
+    $("#schGrid").addEventListener("click", function (e) {
+      var star = e.target.closest("[data-star-anime]");
+      if (star) {
+        e.stopPropagation();
+        toggleWatchAnimeById(star.dataset.starAnime);
+        return;
+      }
+      var card = e.target.closest(".sch-card");
+      if (card) openAnime(card.dataset.anime);
+    });
+
+    $("#schGrid").addEventListener("keydown", function (e) {
+      if (e.key !== "Enter") return;
+      var card = e.target.closest(".sch-card");
+      if (card) openAnime(card.dataset.anime);
+    });
+
+    $("#schSoon").addEventListener("click", function (e) {
+      var item = e.target.closest("[data-anime]");
+      if (item) openAnime(item.dataset.anime);
+    });
+
+    $("#anWatch").addEventListener("click", function () { watchAnime(SCH.current); });
+    $("#anSearch").addEventListener("click", searchAnime);
 
     // 添加订阅
     $("#btnAddFeed").addEventListener("click", function () {
@@ -940,7 +1656,14 @@
         return;
       }
       var k = e.key;
+      if (k === ",") { e.preventDefault(); openSettings(); return; }
+      // 设置里关掉快捷键后，只保留 Esc
+      if (SET.values.hotkeys === false && k !== "Escape") return;
       if (k === "/") { e.preventDefault(); $("#q").focus(); return; }
+      if (k === "t" || k === "T") {
+        switchView(state.view === "schedule" ? "items" : "schedule");
+        return;
+      }
       if (k === "j" || k === "ArrowDown") { e.preventDefault(); step(1); return; }
       if (k === "k" || k === "ArrowUp") { e.preventDefault(); step(-1); return; }
       if (k === "Enter" && state.currentId) { $("#btnOpenPage").click(); return; }
@@ -950,11 +1673,19 @@
         if (it) markRead(it, !it.read);
         return;
       }
-      if (k === "r" || k === "R") { refreshAll(); return; }
+      if (k === "r" || k === "R") {
+        if (state.view === "schedule") loadSchedule(true);
+        else refreshAll();
+        return;
+      }
       if (k === "Escape") {
+        var modal = $$(".modal-wrap").filter(function (w) { return !w.hidden; })[0];
         closeReader(); closeSidebar();
         closeModal("#modalFeed"); closeModal("#modalExport");
         closeModal("#modalWatch"); closeModal("#modalMirror");
+        closeModal("#modalAnime"); closeModal("#modalSchSrc");
+        closeModal("#modalSettings");
+        if (!modal && state.view === "schedule") switchView("items");
       }
     });
 
@@ -989,6 +1720,12 @@
       state.counts = b.counts;
       (b.sources || []).forEach(function (s) { SITE_NAMES[s.id] = s.name; });
 
+      // 服务端存的主题 / 字号 / 密度优先于本地缓存
+      if (b.settings) {
+        SET.values = b.settings;
+        applyClientSettings();
+      }
+
       // 深链：?feed=dmhy / ?feed=watch:w:xxx，方便分享某个频道
       var qs = new URLSearchParams(location.search);
       var deepFeed = qs.get("feed");
@@ -1002,6 +1739,9 @@
       updateChannelHead();
       setRefreshBar(b.refresh);
       loadItems(true);
+
+      // ?view=schedule 直接进新番放送表
+      if (qs.get("view") === "schedule") switchView("schedule");
 
       // 支持 ?item=<id> 深链，方便从别处直接打开某一条
       var deep = qs.get("item");

@@ -22,7 +22,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 NAME = "AnimeRSSReader"
-VERSION = "1.3.0"
+VERSION = "1.5.0"
 SEP = ";" if os.name == "nt" else ":"
 
 VERSION_TEMPLATE = """# UTF-8
@@ -92,6 +92,8 @@ def main():
         "--hidden-import", "feeds",
         "--hidden-import", "store",
         "--hidden-import", "textutil",
+        "--hidden-import", "schedule",
+        "--hidden-import", "settings",
         "--exclude-module", "tkinter",
         "--exclude-module", "unittest",
         "--exclude-module", "pydoc",

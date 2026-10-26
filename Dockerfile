@@ -4,12 +4,12 @@ FROM python:3.12-alpine
 
 LABEL org.opencontainers.image.title="anime-rss-reader" \
       org.opencontainers.image.description="多站动漫资源聚合 + RSS 阅读器" \
-      org.opencontainers.image.version="1.0.0"
+      org.opencontainers.image.version="1.5.0"
 
 WORKDIR /app
 
 # 只复制运行必需的文件
-COPY app.py feeds.py store.py sources.py textutil.py ./
+COPY app.py feeds.py store.py sources.py textutil.py schedule.py settings.py ./
 COPY static/ ./static/
 
 ENV PYTHONUNBUFFERED=1 \

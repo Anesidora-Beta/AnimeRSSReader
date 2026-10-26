@@ -544,14 +544,21 @@ def prepare(items, params):
 class Refresher:
     """后台刷新任务，前端轮询 /api/refresh 拿进度。"""
 
-    def __init__(self, store):
+    def __init__(self, store, settings=None):
         self.store = store
+        self.settings = settings          # 设置服务，用来读条数上限 / 保留天数
         self.lock = threading.Lock()
         self.state = {
             "running": False, "feed": "", "done": 0, "total": 0,
             "added": 0, "kept": 0, "errors": [], "started": 0,
             "finished": 0, "message": "就绪", "watchHits": 0,
         }
+
+    def cfg(self):
+        try:
+            return self.settings.get() if self.settings else {}
+        except Exception:
+            return {}
 
     def status(self):
         with self.lock:
@@ -608,6 +615,9 @@ class Refresher:
                         if errors:
                             # 有源失败但也有数据时，仍然写入并记录错误
                             pass
+                    cap = int(self.cfg().get("fetchLimit") or 0)
+                    if cap > 0:
+                        items = items[:max(50, cap)]
                     if feed["kind"] == "builtin":
                         added = self.store.upsert_items(feed["id"], items)
                     else:
@@ -627,7 +637,9 @@ class Refresher:
                 with self.lock:
                     self.state["done"] = i + 1
             try:
-                self.store.prune()
+                cfg = self.cfg()
+                self.store.prune(days=int(cfg.get("keepDays") or 30),
+                                 cap=int(cfg.get("keepMax") or 30000))
             except Exception:
                 pass
             # 抓完再跑关注匹配：新条目和老条目（关注是后加的）都能命中
