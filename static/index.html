@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#2f6fed">
+<title>动漫资源 · RSS 阅读器</title>
+<link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/assets/style.css?v=__VERSION__">
+</head>
+<body>
+<div class="app" id="app">
+
+  <!-- ===================== 侧栏 ===================== -->
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="logo">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h4L14 7h3.5A2.5 2.5 0 0 1 20 9.5v8A2.5 2.5 0 0 1 17.5 20h-11A2.5 2.5 0 0 1 4 17.5v-11Z" stroke="currentColor" stroke-width="1.6"/>
+          <circle cx="9" cy="13" r="1.4" fill="currentColor"/>
+          <circle cx="15" cy="13" r="1.4" fill="currentColor"/>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <strong>动漫资源</strong>
+        <span>RSS 阅读器</span>
+      </div>
+      <button class="icon-btn" id="btnRefresh" title="抓取最新（R）" aria-label="刷新">
+        <svg class="i-refresh" viewBox="0 0 24 24" fill="none"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.8v3.4h-3.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+
+    <div class="refresh-bar">
+      <div class="refresh-track"><i id="refreshFill"></i></div>
+      <span id="refreshText">就绪</span>
+    </div>
+
+    <nav class="nav">
+      <button class="nav-item" data-nav="unread">
+        <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="7.2" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="2.4" fill="currentColor"/></svg>
+        <span>未读</span><em id="cUnread">0</em>
+      </button>
+      <button class="nav-item" data-nav="all">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M5 12h14M5 17h9" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+        <span>全部条目</span><em id="cAll">0</em>
+      </button>
+      <button class="nav-item" data-nav="starred">
+        <svg viewBox="0 0 24 24" fill="none"><path d="m12 5.6 1.9 3.9 4.3.6-3.1 3 .7 4.3-3.8-2-3.8 2 .7-4.3-3.1-3 4.3-.6L12 5.6Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        <span>收藏</span><em id="cStar">0</em>
+      </button>
+    </nav>
+
+    <div class="side-scroll">
+      <div class="group-title">
+        <span>关注</span>
+        <button class="mini-btn" id="btnAddWatch" title="新建关注">＋</button>
+      </div>
+      <div id="watchList" class="feed-list"></div>
+      <div class="empty-hint" id="watchEmpty">还没有关注<br>加个关键词，更新会自动挑出来留 30 天</div>
+
+      <div class="group-title">
+        <span>资源站</span>
+        <span class="group-hint" id="srcCount">5</span>
+      </div>
+      <div id="feedBuiltin" class="feed-list"></div>
+
+      <div class="group-title">
+        <span>自定义订阅</span>
+        <button class="mini-btn" id="btnAddFeed" title="添加 RSS">＋</button>
+      </div>
+      <div id="feedCustom" class="feed-list"></div>
+      <div class="empty-hint" id="customEmpty">还没有自定义订阅<br>可以添加任意 RSS / Atom 地址</div>
+    </div>
+
+    <div class="side-foot">
+      <button class="ghost-btn" id="btnMirror" title="站点入口与镜像状态">
+        <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.6"/><path d="M4 12h16M12 4c2.6 2.6 2.6 13.4 0 16M12 4c-2.6 2.6-2.6 13.4 0 16" stroke="currentColor" stroke-width="1.5"/></svg>
+        <span>镜像</span>
+      </button>
+      <button class="ghost-btn" id="btnTheme" title="切换主题">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M12 4.2v2M12 17.8v2M4.2 12h2M17.8 12h2M6.5 6.5l1.4 1.4M16.1 16.1l1.4 1.4M17.5 6.5l-1.4 1.4M7.9 16.1l-1.4 1.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="12" r="3.1" stroke="currentColor" stroke-width="1.6"/></svg>
+        <span id="themeLabel">自动</span>
+      </button>
+      <button class="ghost-btn" id="btnExport" title="导出订阅地址">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M12 4v10m0 0 3.5-3.5M12 14 8.5 10.5M5 17.5V19a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-1.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>导出</span>
+      </button>
+    </div>
+  </aside>
+  <div class="scrim" id="scrim"></div>
+
+  <!-- ===================== 列表 ===================== -->
+  <main class="list-pane">
+    <div class="mobile-top">
+      <button class="icon-btn" id="btnMenu" aria-label="菜单">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+      <span id="mobileTitle">全部更新</span>
+      <button class="icon-btn" id="btnRefreshM" aria-label="刷新">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.8v3.4h-3.4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+
+    <header class="list-head">
+      <div class="list-title-row">
+        <div class="list-title">
+          <h2 id="channelTitle">全部更新</h2>
+          <p id="channelSub">—</p>
+        </div>
+        <button class="icon-btn" id="btnReadAll" title="把当前频道全部标为已读">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M4.5 12.5 9 17l10.5-10.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+      <div class="search">
+        <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="6.3" stroke="currentColor" stroke-width="1.7"/><path d="m16 16 4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+        <input id="q" type="search" placeholder="搜索标题 / 简介" autocomplete="off" spellcheck="false">
+        <kbd>/</kbd>
+      </div>
+    </header>
+
+    <div class="list-body" id="listBody"></div>
+  </main>
+
+  <!-- ===================== 阅读区 ===================== -->
+  <section class="reader-pane" id="reader">
+    <div class="reader-top">
+      <button class="icon-btn only-mobile" id="btnBack" aria-label="返回">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M15 5l-7 7 7 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="reader-crumbs" id="readerCrumb"></div>
+      <div class="reader-tools">
+        <button class="icon-btn" id="btnUnread" title="标记为未读">
+          <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="7.2" stroke="currentColor" stroke-width="1.7"/></svg>
+        </button>
+        <button class="icon-btn" id="btnStar" title="收藏（S）">
+          <svg viewBox="0 0 24 24" fill="none"><path d="m12 5.6 1.9 3.9 4.3.6-3.1 3 .7 4.3-3.8-2-3.8 2 .7-4.3-3.1-3 4.3-.6L12 5.6Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        </button>
+        <button class="icon-btn" id="btnOpenPage" title="打开帖子页">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M14 5h5v5M19 5l-7.5 7.5M17 14v4a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="reader-scroll" id="readerScroll">
+      <div class="welcome" id="welcome">
+        <div class="welcome-art">
+          <svg viewBox="0 0 120 120" fill="none">
+            <rect x="16" y="28" width="88" height="64" rx="14" stroke="currentColor" stroke-width="2" opacity=".35"/>
+            <path d="M16 44h88" stroke="currentColor" stroke-width="2" opacity=".25"/>
+            <circle cx="26" cy="36" r="2.2" fill="currentColor" opacity=".45"/>
+            <circle cx="33" cy="36" r="2.2" fill="currentColor" opacity=".45"/>
+            <path d="M40 62h40M40 72h26" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" opacity=".55"/>
+            <path d="M74 74c6 4 12 4 16 0" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity=".3"/>
+          </svg>
+        </div>
+        <h3>选一条开始阅读</h3>
+        <p>左边挑频道，中间点条目。每条都自带磁力链接、种子直链和帖子页。</p>
+        <div class="kbd-hints">
+          <span><kbd>J</kbd><kbd>K</kbd> 上下切换</span>
+          <span><kbd>S</kbd> 收藏</span>
+          <span><kbd>R</kbd> 刷新</span>
+          <span><kbd>/</kbd> 搜索</span>
+        </div>
+      </div>
+
+      <article class="article" id="article" hidden>
+        <h1 class="art-title" id="artTitle"></h1>
+        <div class="art-meta" id="artMeta"></div>
+        <div class="art-actions" id="artActions"></div>
+        <div class="art-summary" id="artSummary"></div>
+        <div class="art-links" id="artLinks"></div>
+        <details class="art-magnet" id="artMagnetBox">
+          <summary>磁力链接原文</summary>
+          <code id="artMagnet"></code>
+        </details>
+        <footer class="art-foot" id="artFoot"></footer>
+      </article>
+    </div>
+  </section>
+</div>
+
+<!-- 添加订阅弹窗 -->
+<div class="modal-wrap" id="modalFeed" hidden>
+  <div class="modal">
+    <h3>添加订阅源</h3>
+    <p class="modal-sub">支持任意 RSS / Atom 地址；抓到磁力和种子会自动显示成下载按钮。</p>
+    <label>订阅名称 <input id="fTitle" type="text" placeholder="留空自动取域名"></label>
+    <label>订阅地址 <input id="fUrl" type="text" placeholder="https://example.com/feed.xml" spellcheck="false"></label>
+    <div class="modal-error" id="fErr" hidden></div>
+    <div class="modal-actions">
+      <button class="ghost-btn" id="fCancel">取消</button>
+      <button class="primary-btn" id="fSubmit">添加并抓取</button>
+    </div>
+  </div>
+</div>
+
+<!-- 关注弹窗 -->
+<div class="modal-wrap" id="modalWatch" hidden>
+  <div class="modal">
+    <h3 id="wHead">新建关注</h3>
+    <p class="modal-sub">按关键词自动挑条目，命中的会保留 30 天，源站下架了也还能看到。</p>
+    <label>名称 <input id="wName" type="text" placeholder="例如：葬送的芙莉莲"></label>
+    <label>必须包含 <input id="wInclude" type="text" placeholder="空格分隔，需要全部命中" spellcheck="false"></label>
+    <label>排除词 <input id="wExclude" type="text" placeholder="可选，命中任意一个就跳过" spellcheck="false"></label>
+    <label>字幕组 <input id="wFansub" type="text" placeholder="可选，如 喵萌奶茶屋,LoliHouse" spellcheck="false"></label>
+    <div class="modal-error" id="wErr" hidden></div>
+    <div class="modal-actions">
+      <button class="ghost-btn" id="wCancel">取消</button>
+      <button class="primary-btn" id="wSubmit">保存并匹配</button>
+    </div>
+  </div>
+</div>
+
+<!-- 镜像状态弹窗 -->
+<div class="modal-wrap" id="modalMirror" hidden>
+  <div class="modal wide">
+    <h3>站点入口</h3>
+    <p class="modal-sub">一个站断了下一次会自动换下一个；花园直连全挂时，会改用 AnimeGarden 镜像取回同样的内容。</p>
+    <div class="mirror-list" id="mirrorList"></div>
+    <p class="modal-note">想接自己的反代：设环境变量 <code>ANIME_RSS_DMHY_HOST</code> 指向你的域名。</p>
+    <div class="modal-actions"><button class="primary-btn" id="mirrorClose">知道了</button></div>
+  </div>
+</div>
+
+<!-- 导出弹窗 -->
+<div class="modal-wrap" id="modalExport" hidden>
+  <div class="modal">
+    <h3>订阅地址</h3>
+    <p class="modal-sub">想用手机上的其他阅读器？把这些地址填进去即可，数据与本页面同源。</p>
+    <div class="copy-row"><input id="expAll" type="text" readonly><button data-copy="expAll">复制</button></div>
+    <div class="copy-row"><input id="expOpml" type="text" readonly><button data-copy="expOpml">复制</button></div>
+    <p class="modal-note" id="expLan"></p>
+    <div class="modal-actions"><button class="primary-btn" id="expClose">知道了</button></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<script src="/assets/app.js?v=__VERSION__"></script>
+</body>
+</html>

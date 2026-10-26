@@ -1,0 +1,14 @@
+services:
+  anime-rss:
+    build: .
+    image: anime-rss-reader:1.0.0
+    container_name: anime-rss-reader
+    restart: unless-stopped
+    ports:
+      - "8899:8899"
+    volumes:
+      - ./data:/data
+    environment:
+      # 抓取间隔由前端刷新按钮 / 浏览器触发，这里只控制服务端口
+      PORT: "8899"
+      TZ: Asia/Shanghai
