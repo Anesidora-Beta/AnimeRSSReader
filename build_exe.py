@@ -3,13 +3,18 @@
 """把应用打成单文件可执行程序（Windows / macOS / Linux 各跑一次即可）。
 
 用法:
-    python build_exe.py            # 生成单文件启动器
+    python build_exe.py            # 生成单文件启动器（无控制台窗口）
     python build_exe.py --onedir   # 生成文件夹版（启动更快，便于排查问题）
+    python build_exe.py --console  # 保留黑框，调试时能看到实时日志
 
 产物在 dist/ 下：
     Windows  dist/AnimeRSSReader.exe
     macOS    dist/AnimeRSSReader
     Linux    dist/AnimeRSSReader
+
+默认打成「窗口程序」：运行时不会弹出 cmd 黑框。代价是没有控制台输出，
+所以程序会把 stdout/stderr 接到 data/logs/app.log（见 anime_rss/runtime.py），
+启动失败时会弹窗提示，而不是双击后静默无反应。
 
 注意：PyInstaller 不支持交叉编译，要哪个平台的程序就在哪个平台上跑一次。
 数据目录在可执行文件旁边自动创建（data/reader.db），复制走即可带走阅读状态。
@@ -72,6 +77,7 @@ def main():
         return 1
 
     onedir = "--onedir" in sys.argv
+    console = "--console" in sys.argv
 
     # 图标：没有就现生成（build_icon.py 只用标准库）
     icon = os.path.join(HERE, "icon.ico" if os.name == "nt" else "icon.png")
@@ -86,6 +92,7 @@ def main():
         sys.executable, "-m", "PyInstaller",
         "--noconfirm", "--clean",
         "--onedir" if onedir else "--onefile",
+        "--console" if console else "--noconsole",
         "--name", NAME,
         "--add-data", "static%sstatic" % SEP,
         "--hidden-import", "sources",
@@ -106,6 +113,7 @@ def main():
         "--hidden-import", "anime_rss.kernel.views",
         "--hidden-import", "anime_rss.app",
         "--hidden-import", "anime_rss.host",
+        "--hidden-import", "anime_rss.runtime",
         "--hidden-import", "anime_rss.api",
         "--hidden-import", "anime_rss.api.core",
         # 模块化：契约 + 内置模块清单（清单是静态元组，打包也不会漏）

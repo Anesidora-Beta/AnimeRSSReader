@@ -100,12 +100,21 @@ docker build -t anime-rss . && docker run -d -p 8899:8899 -v "$PWD/data:/data" a
 
 ```bash
 pip install pyinstaller
-python build_exe.py            # 单文件，产物在 dist/
+python build_exe.py            # 单文件，产物在 dist/（窗口程序，没有黑框）
 python build_exe.py --onedir   # 文件夹版，启动更快、便于排查问题
+python build_exe.py --console  # 保留黑框，调试时能看实时日志
 ```
 
 PyInstaller 不支持交叉编译，要哪个平台的程序就在哪个平台上跑一次。
 图标由 `build_icon.py` 用纯标准库光栅化生成（`icon.ico` / `icon.png`），换配色改文件顶部的常量即可。
+
+**关于那个黑框**：默认打成窗口程序（PE 子系统 `WINDOWS_GUI`），双击不会弹 cmd。
+代价是没有控制台输出，所以启动横幅和访问日志会写到 `data/logs/app.log`（超过 1 MB 自动重开），
+启动失败时会弹窗提示而不是静默退出。想确认产物类型可以跑：
+
+```bash
+python tools/check_subsystem.py dist/AnimeRSSReader.exe   # 2 = 窗口程序，3 = 控制台程序
+```
 
 ## 界面怎么用
 
@@ -332,6 +341,7 @@ anime-rss-reader/
 │  ├─ module.py        模块契约：Module / 加载顺序 / api_version 校验
 │  ├─ common.py        模块共用的视图工具（来源名、设置快照、生效回调）
 │  ├─ discovery.py     插件发现：entry_points + 本地 plugins/ 目录
+│  ├─ runtime.py       打包后的输出兜底：无控制台时把 stdout/stderr 接到 data/logs/app.log
 │  ├─ modules/         内置模块：feeds / reader / settings / schedule
 │  └─ api/             外壳：静态页、健康检查、/api/bootstrap 聚合、/api/jobs
 ├─ examples/plugins/   示例插件（连 static/ 复制到 plugins/ 即生效）
@@ -355,8 +365,9 @@ anime-rss-reader/
 ├─ start-unix.sh       Linux / NAS 启动
 ├─ Dockerfile          容器镜像
 ├─ docker-compose.yml
-├─ build_exe.py        单文件可执行打包
+├─ build_exe.py        单文件可执行打包（默认窗口程序，--console 保留黑框）
 ├─ build_icon.py       生成 icon.ico（纯标准库）
+├─ tools/check_subsystem.py  检查 exe 是窗口程序还是控制台程序
 ├─ icon.ico / icon.png 程序图标
 ├─ preview/            README 用的界面截图
 ├─ dist/               打包产物（自己跑 build_exe.py 后生成）

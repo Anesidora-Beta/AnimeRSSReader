@@ -54,7 +54,13 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         if self.quiet:
             return
-        sys.stderr.write("[%s] %s\n" % (time.strftime("%H:%M:%S"), fmt % args))
+        err = sys.stderr
+        if err is None:                 # 无控制台（窗口模式）时别去碰 None
+            return
+        try:
+            err.write("[%s] %s\n" % (time.strftime("%H:%M:%S"), fmt % args))
+        except Exception:
+            pass
 
     # ------------------------------------------------------------ 写响应
     def _write(self, resp):

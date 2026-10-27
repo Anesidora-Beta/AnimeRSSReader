@@ -242,6 +242,7 @@ app.stop()                                     # 停任务表、收尾模块、�
 | 前端视图注册 | ✅ `kernel/views.py` + `ARR.registerView` | 模块声明 `views`/`assets`，脚本从 `/plug/<id>/` 加载；侧栏入口自动生成，坏视图只跳过自己 |
 | `create_app()` / `export(host)` / `/api/v1` | ✅ `anime_rss/app.py` + `anime_rss/host.py` | 桌面与嵌入共用一份组装；`App.handle()` 直接返回 `Response`，`App.wsgi` 是标准 WSGI；`/api/v1` 是同一批 handler 的别名 |
 | `plugin_api.py` / `cli.py` | 未单独建文件 | 契约落在 `module.py`（`Module` / `API_VERSION`），命令行入口仍是根目录 `app.py` |
+| 打包后的输出通道 | ✅ `anime_rss/runtime.py` | 窗口模式（`--noconsole`）下 `sys.stdout/stderr` 是 `None`：启动时接到 `data/logs/app.log`，`Handler.log_message` 显式判空，`fatal()` 在无控制台时弹窗。**否则访问日志一写就 `AttributeError`，整请求挂掉** |
 
 ### 独立底座：`packages/arrkit/`
 

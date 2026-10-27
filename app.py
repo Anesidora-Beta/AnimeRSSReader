@@ -30,6 +30,7 @@ from anime_rss.app import create_app
 from anime_rss.kernel.context import local_ip
 from anime_rss.kernel.server import make_server
 from anime_rss.module import ModuleError
+from anime_rss import runtime as RUNTIME
 
 APP_NAME = "动漫资源 · RSS 阅读器"
 VERSION = "2.0.0"
@@ -42,6 +43,13 @@ else:
     _BASE = HERE
 DATA_DIR = os.environ.get("ANIME_RSS_DATA") or os.path.join(_BASE, "data")
 STATIC_DIR = os.path.join(HERE, "static")
+
+# 打包成无控制台程序后 stdout/stderr 是 None：先接上日志文件，
+# 后面所有 print / 访问日志才有地方去（也避免直接 write 时抛异常）。
+if getattr(sys, "frozen", False):
+    LOG_PATH = RUNTIME.attach_streams(DATA_DIR)
+else:
+    LOG_PATH = None
 
 CTX = None               # 应用上下文，由 main() 组装后注入
 UI = None                # 全局窗口监督器，/api/open-window 用它把界面接回来
@@ -648,7 +656,7 @@ def main(argv=None):
             plugin_dirs=[os.path.join(_BASE, "plugins")],
         )
     except ModuleError as e:
-        print(f"模块加载失败：{e}")
+        RUNTIME.fatal(f"模块加载失败：{e}")
         return 1
 
     ctx = app.ctx
@@ -659,7 +667,7 @@ def main(argv=None):
         srv = make_server(host, port, app.dispatcher,
                           quiet=os.environ.get("ANIME_RSS_QUIET") == "1")
     except OSError as e:
-        print(f"启动失败：{host}:{port} 无法监听（{e}）")
+        RUNTIME.fatal(f"启动失败：{host}:{port} 无法监听（{e}）")
         app.stop()
         return 1
 
