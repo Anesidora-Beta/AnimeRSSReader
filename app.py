@@ -33,7 +33,7 @@ from anime_rss.module import ModuleError
 from anime_rss import runtime as RUNTIME
 
 APP_NAME = "动漫资源 · RSS 阅读器"
-VERSION = "2.0.0"
+VERSION = "2.0.1"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 if getattr(sys, "frozen", False):          # PyInstaller 单文件模式
@@ -95,10 +95,10 @@ _OWNER_CLASS = "AnimeRSSCloseOwner"
 _OWNER_PROC = None          # 必须留住窗口过程回调，否则被回收后窗口会崩
 
 
-def _pid_window_rect(pid):
-    """找一个进程的可见主窗口矩形（宽高够大的那个），拿不到就返回 None"""
+def _pid_windows(pid):
+    """列出某进程的可见主窗口：[{"rect": (x, y, w, h), "min": 是否最小化}]"""
     if os.name != "nt":
-        return None
+        return []
     try:
         import ctypes
         from ctypes import wintypes
@@ -117,13 +117,23 @@ def _pid_window_rect(pid):
                 return True
             w, h = rect.right - rect.left, rect.bottom - rect.top
             if w >= 240 and h >= 160:        # 过滤掉工具条之类的小窗
-                found.append((rect.left, rect.top, w, h))
+                # 最小化后位置是 -32000，不能当坐标用，但「窗口还在」
+                found.append({"rect": (rect.left, rect.top, w, h),
+                              "min": bool(user32.IsIconic(hwnd))})
             return True
 
         user32.EnumWindows(proc(_cb), 0)
-        return found[0] if found else None
+        return found
     except Exception:
+        return []
+
+
+def _pid_window_rect(pid):
+    """主窗口矩形（面积最大的那个，跳过最小化的），拿不到就返回 None"""
+    normal = [w["rect"] for w in _pid_windows(pid) if not w["min"]]
+    if not normal:
         return None
+    return max(normal, key=lambda r: r[2] * r[3])
 
 
 def _make_msg_owner(x, y):
@@ -237,35 +247,43 @@ def _find_msgbox_hwnd():
         return None
 
 
-def _focus_dialog_soon(anchor=None):
-    """对话框出来之后再抢一次前台：MessageBoxW 是阻塞调用，
-    只能在旁边开个线程等它出现，把它顶到最前面拿键盘焦点，
-    顺便挪到主窗口原来的位置，看起来就是从窗口里弹出来的。"""
-    def _work():
-        for _ in range(16):
-            time.sleep(0.15)
-            hwnd = _find_msgbox_hwnd()
-            if not hwnd:
-                continue
-            try:
-                if anchor:
-                    import ctypes
-                    from ctypes import wintypes
+def _place_dialog_soon(anchor=None):
+    """对话框一出来就摆到 anchor（主窗口原来的中心点）上，并抢一次前台。
 
-                    user32 = ctypes.windll.user32
+    MessageBox 不按父窗位置摆（系统有自己的规则，实测会跑到屏幕别处），
+    只能等它建好再摆正。所以这里 10ms 一轮地等它出现，
+    趁第一帧还没画出来就挪好 —— 用户看到的是「窗口一关，询问框就在原地」，
+    看不到「先跳到角落再滑回来」。
+    """
+    def _work():
+        if not anchor:
+            return
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            user32 = ctypes.windll.user32
+        except Exception:
+            return
+        for _ in range(200):              # 最多等 2 秒
+            hwnd = _find_msgbox_hwnd()
+            if hwnd:
+                try:
                     rect = wintypes.RECT()
                     user32.GetWindowRect(hwnd, ctypes.byref(rect))
                     w = rect.right - rect.left
                     h = rect.bottom - rect.top
-                    user32.SetWindowPos(
-                        hwnd, 0,
-                        int(anchor[0] - w // 2), int(anchor[1] - h // 2),
-                        0, 0, 0x0001 | 0x0004)     # NOSIZE | NOZORDER
-            except Exception:
-                pass
-            _bring_to_front(hwnd)
-            return
-    threading.Thread(target=_work, daemon=True, name="dialog-focus").start()
+                    nx = int(anchor[0] - w // 2)
+                    ny = int(anchor[1] - h // 2)
+                    if abs(nx - rect.left) > 2 or abs(ny - rect.top) > 2:
+                        user32.SetWindowPos(hwnd, 0, nx, ny, 0, 0,
+                                            0x0001 | 0x0004)   # NOSIZE | NOZORDER
+                except Exception:
+                    pass
+                _bring_to_front(hwnd)
+                return
+            time.sleep(0.01)
+    threading.Thread(target=_work, daemon=True, name="dialog-place").start()
 
 
 def ask_close_action(rect=None):
@@ -296,14 +314,16 @@ def ask_close_action(rect=None):
         if rect:
             x = rect[0] + rect[2] // 2
             y = rect[1] + rect[3] // 2
+            owner = _make_msg_owner(x, y)
         else:
-            x = y = 0
+            # 拿不到原窗口位置：不加父窗，交给系统按当前屏幕居中，
+            # 别把父窗摆到 (0, 0) 把弹窗顶到屏幕角上
+            owner = None
 
-        owner = _make_msg_owner(x, y)
         started = time.time()
         if owner:
             _bring_to_front(owner)
-        _focus_dialog_soon((x, y) if rect else None)   # 弹出来之后挪位置 + 抢焦点
+        _place_dialog_soon((x, y) if rect else None)    # 一出现就摆正 + 抢焦点
         try:
             ret = user32.MessageBoxW(owner, text, APP_NAME, flags)
         finally:
@@ -311,12 +331,10 @@ def ask_close_action(rect=None):
                 user32.DestroyWindow(owner)
         _debug(f"MessageBox ret={ret} elapsed={time.time() - started:.2f}s "
                f"rect={rect}")
-        if ret in (6, 7):            # IDYES / IDNO，真的有人点了
-            return ret != 7
-        # 极少数情况下还是没弹出来：这次不带父窗再来一次
-        ret = user32.MessageBoxW(None, text, APP_NAME, flags)
-        _debug(f"MessageBox fallback ret={ret}")
-        return ret != 7
+        if ret == 0:                 # 压根没弹出来：不带父窗再试一次
+            ret = user32.MessageBoxW(None, text, APP_NAME, flags)
+            _debug(f"MessageBox fallback ret={ret}")
+        return ret == 6              # IDYES 才退出；IDNO / ESC / 其它都留在后台
     except Exception as e:
         _debug(f"MessageBox 异常: {e!r}")
         return True
@@ -431,6 +449,7 @@ class WindowSupervisor(threading.Thread):
     def _show_once(self):
         with self._lock:
             self._have_window = True
+        proc = None
         try:
             proc = open_app_window(self.url, self.size) if self.on_close != "browser" else None
             if proc is None:
@@ -440,71 +459,56 @@ class WindowSupervisor(threading.Thread):
                     pass
                 return "browser"          # 普通标签页感知不到关闭，只能靠 stop
             started = time.time()
-            rect = None
-            while proc.poll() is None:
-                if self._stopping:
-                    return "stop"
-                rect = _pid_window_rect(proc.pid) or rect    # 记住窗口位置
-                time.sleep(0.3)
-            if time.time() - started < 5:      # 窗口没起来（启动失败），不当作关窗
-                return "abort"
+            rect, why = self._watch_window(proc)
+            if why == "stop":
+                return "stop"
+            if rect is None and time.time() - started < 5:
+                return "abort"            # 窗口没起来（启动失败），不当作关窗
             action = self.on_close
             if action == "ask":
-                # 主窗口先别消失：先在弹窗后面把窗口补回来，选完再关掉
-                ghost = self._reopen_behind(rect)
-                try:
-                    action = "exit" if ask_close_action(rect) else "background"
-                finally:
-                    self._close_ghost(ghost)
+                action = "exit" if ask_close_action(rect) else "background"
             if action == "exit":
                 return "exit"
             self._stays_in_background()
             return "background"
         finally:
+            # 关窗到进程真正退出之间还有几百毫秒，这里顺手收干净，
+            # 免得「留在后台」之后还挂着一个没有窗口的浏览器进程
+            if proc is not None and proc.poll() is None:
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
             with self._lock:
                 self._have_window = False
 
-    # ---------------- 弹窗背后的「临时主窗口」
-    def _reopen_behind(self, rect=None):
-        """把主窗口重新开出来，让它在弹窗后面继续存在。
+    # ---------------- 盯着主窗口
+    def _watch_window(self, proc):
+        """等主窗口消失，返回 (最后的窗口矩形, 原因)。
 
-        放在独立线程里：弹窗可以立刻出现，窗口随后补在它后面，
-        用户看到的就是「窗口没有先消失，弹窗盖在窗口前面」。
-        用户如果答得很快（窗口还没来得及开），直接取消，不留残窗。
+        不等进程退出：Chromium 从窗口关掉到进程结束要几百毫秒，
+        这段时间屏幕上什么都没有。窗口一消失就往下走，
+        询问框能立刻在原地弹出来，不会先空一下再冒出来。
+        连续两次采样都看不到窗口才算关了，避免重绘时的瞬间抖动。
+        最小化不算关闭（窗口还在，只是位置是 -32000）。
         """
-        holder = {"proc": None, "cancel": False, "done": False}
-
-        def _work():
-            try:
-                time.sleep(0.12)
-                if not holder["cancel"]:
-                    holder["proc"] = open_app_window(self.url, self.size)
-                if holder["cancel"] and holder["proc"]:
-                    holder["proc"].terminate()
-            except Exception:
-                pass
-            finally:
-                holder["done"] = True
-
-        threading.Thread(target=_work, daemon=True, name="close-ghost").start()
-        return holder
-
-    def _close_ghost(self, holder):
-        """选择完成后再让「临时主窗口」消失"""
-        if not holder:
-            return
-        holder["cancel"] = True
-        deadline = time.time() + 3.0
-        while not holder.get("done") and time.time() < deadline:
-            time.sleep(0.05)            # 等后台线程收尾，避免漏一个窗口
-        proc = holder.get("proc")
-        if not proc:
-            return
-        try:
-            if proc.poll() is None:
-                proc.terminate()
-        except Exception:
-            pass
+        rect = None
+        gone = 0
+        while proc.poll() is None:
+            if self._stopping:
+                return rect, "stop"
+            wins = _pid_windows(proc.pid)
+            if wins:
+                gone = 0
+                normal = [w["rect"] for w in wins if not w["min"]]
+                if normal:
+                    rect = max(normal, key=lambda r: r[2] * r[3])
+            elif rect:
+                gone += 1
+                if gone >= 2:
+                    return rect, "window-gone"
+            time.sleep(0.06)
+        return rect, "exited"
 
     def _stays_in_background(self):
         print("\n  窗口已关闭，服务仍在后台运行")
