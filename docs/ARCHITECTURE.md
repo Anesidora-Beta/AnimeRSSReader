@@ -1,7 +1,7 @@
 # 架构设计：薄内核 + 双向插件契约
 
 > 目标版本线：v1.5.0 → v2.0.0
-> 状态：设计已定稿，P0 / P1 / P2 / P3 完成；P4 待做（`create_app()` / `export(host)` / `/api/v1`）
+> 状态：设计已定稿，P0–P4 全部完成（薄内核 / 模块化 / 插件 / 可嵌入组装）
 
 ## 1. 三条硬约束
 
@@ -162,17 +162,33 @@ window.ARR = {
 
 ## 5. 方向 B：本项目作为别人的插件
 
-提供两种接入姿态，覆盖绝大多数宿主：
+提供三种接入姿态，覆盖绝大多数宿主：
 
 | 姿态 | 入口 | 适用 |
 |---|---|---|
-| 进程内嵌入 | `anime_rss.create_app(config) → App`，宿主调 `app.start()`，或直接 `app.handle(method, path, body)` | 宿主是 Python 程序（Flask/FastAPI/Tkinter/另一个内核） |
-| 作为宿主插件 | `anime_rss.host.export(host_ctx)` | 宿主有自己的插件系统，我们只注册路由/视图/命令 |
-| 进程外 | `python -m anime_rss --api-only --port N`，走 `/api/v1` | 跨语言、跨机器，最省事 |
+| 进程内嵌入 | `anime_rss.host.create_app(...)` → `App`，宿主调 `app.handle(method, path, body)` 拿 `Response` | 宿主是 Python 程序（Flask/FastAPI/Tkinter/另一个内核） |
+| WSGI | `anime_rss.host.wsgi_app(...)` → 标准 WSGI callable | 宿主已有 Web 框架（Flask/Django/gunicorn） |
+| 注册进宿主路由表 | `anime_rss.host.export(host, ...)` | 宿主有自己的插件系统，我们只把路由交出去 |
 
-`export(host_ctx)` 只需要宿主提供三个方法：`route(method, path, fn)`、`static(prefix, dir)`、`config(schema)`。缺哪个就用适配器补：没有 `route` 就退化成自己起一个线程内服务；没有 `config` 就用内存配置。**宿主不需要为了接我们改架构。**
+```python
+# 最小宿主：不引入任何框架，10 行内就能访问
+from anime_rss.host import create_app
 
-对应的，我们自己暴露 `/api/v1/*` 稳定前缀（当前 `/api/*` 保留为别名），避免以后版本升级把宿主打挂。
+app = create_app(data_dir="./data/anime")      # 组装，不联网、不起服务
+resp = app.handle("GET", "/api/v1/items")      # 拿内核的 Response
+print(resp.status, resp.body[:80])
+app.stop()                                     # 停任务表、收尾模块、关库
+```
+
+宿主对象只要实现 `mount(router)` / `add_route(method, path, fn)` / `route(method, path, fn)`
+任意一个，`export(host)` 就能把整张路由表交出去；三个都没有会**明确抛 TypeError**，
+不猜也不静默降级。纯 WSGI 宿主用 `wsgi_app()`，返回的函数带 `.app` 与 `.stop()`。
+
+`App` 的生命周期很短：`create_app()` 只组装，`start()` 才启动任务表（自动刷新、启动抓取），
+`stop()` 收尾。**嵌入时默认 `fetch_on_start=False`** —— 宿主还没准备好时不该先打一轮网络。
+
+对应的，我们自己暴露 `/api/v1/*` 稳定前缀（`/api/*` 保留为别名，一套 handler 两份路由），
+避免以后版本升级把宿主打挂。`api_v1=False` 可以关掉别名。
 
 ## 6. 信任与安全边界
 
@@ -189,7 +205,7 @@ window.ARR = {
 | **P1** ✅ | 抽 `kernel/`：路由表化、全局变量改 `ctx` 注入、静态资源挂载 | 功能零变化，`smoke.py` 68/68；`app.py` 1295 → 744 行，只剩组装与桌面代码 |
 | **P2** ✅ | 按 `schedule` → `feeds` → `reader` → `settings` 拆模块 | 四个模块迁完；`api/core.py` 447 → 84 行；路由 38 条逐条比对不变；27 项单测 + `smoke.py` 68/68 |
 | **P3** ✅ | 开放插件发现（entry_points + plugins/ 目录）+ `bus` / `jobs` / 前端视图注册 | 发现机制 + 示例插件（`discovery.py` + `examples/plugins/hello.py`，含自带界面）；`bus` / `jobs` / `views` 三个内核件落地，`auto-refresh` 与启动预热改由任务表管；67 → 69 项单测、`smoke.py` 77/77；无头浏览器实测插件视图可渲染 |
-| **P4** | `create_app()` / `export(host)` / `/api/v1` + 文档 | 用一个最小宿主程序（10 行内）成功加载并访问 |
+| **P4** ✅ | `create_app()` / `export(host)` / `wsgi_app()` / `/api/v1` + 文档 | `anime_rss/app.py` 一处组装，桌面 `app.py` 的 `main()` 改为调它（不再自己拼部件）；`/api/v1` 别名与原路径同源；92 项单测 + `smoke.py` 80/80；最小宿主示例见 `docs/ARCHITECTURE.md` §5 |
 
 原则：**每一阶段结束时应用都要能跑**。不出现“改到一半不能用”的状态，任何一步不对就停下，不硬推。
 
@@ -224,6 +240,8 @@ window.ARR = {
 | `registry.py` 插件发现 | ✅ `discovery.py` | entry_points（组 `anime_rss.plugins`）+ 本地 `plugins/` 目录；内置优先、坏插件只跳过不拖垮启动；`--no-third-party` 可整体关闭 |
 | `bus.py` / `jobs.py` | ✅ `kernel/bus.py` / `kernel/jobs.py` | 跨模块只走 `ctx.on/emit`；定时任务统一进 `ctx.jobs`，退出时 `jobs.stop()` + `unload_modules()` 收尾，`/api/jobs` 可看运行状态 |
 | 前端视图注册 | ✅ `kernel/views.py` + `ARR.registerView` | 模块声明 `views`/`assets`，脚本从 `/plug/<id>/` 加载；侧栏入口自动生成，坏视图只跳过自己 |
+| `create_app()` / `export(host)` / `/api/v1` | ✅ `anime_rss/app.py` + `anime_rss/host.py` | 桌面与嵌入共用一份组装；`App.handle()` 直接返回 `Response`，`App.wsgi` 是标准 WSGI；`/api/v1` 是同一批 handler 的别名 |
+| `plugin_api.py` / `cli.py` | 未单独建文件 | 契约落在 `module.py`（`Module` / `API_VERSION`），命令行入口仍是根目录 `app.py` |
 
 ### 现在写一个模块长什么样
 

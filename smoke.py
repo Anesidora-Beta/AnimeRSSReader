@@ -194,6 +194,15 @@ def main():
         status, items = jget(base, "/api/items?filter=unread&limit=5")
         ck.eq("items?filter=unread 200", status, 200)
 
+        # 版本化别名：新接入方用 /api/v1，老路径继续可用
+        status, _ = jget(base, "/api/v1/health")
+        ck.eq("api/v1/health 200", status, 200)
+        _, old_items = jget(base, "/api/items?limit=2")
+        status, new_items = jget(base, "/api/v1/items?limit=2")
+        ck.eq("api/v1/items 200", status, 200)
+        ck.check("api/v1 与老路径返回一致",
+                 (old_items or {}).get("items") == (new_items or {}).get("items"))
+
         status, _, raw = request(base, "/feed.xml")
         ck.eq("导出 RSS 200", status, 200)
         ck.check("导出 RSS 是 XML", raw.lstrip()[:5] in (b"<?xml", b"<rss>"))

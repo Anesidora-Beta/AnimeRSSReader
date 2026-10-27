@@ -326,6 +326,8 @@ data/reader.db     SQLite：订阅源配置、条目、已读/收藏状态、关
 anime-rss-reader/
 ├─ app.py              组装层：拼上下文、加载模块、挂路由与静态资源、窗口监督
 ├─ anime_rss/          应用包（内核 / 模块 / API 三层分开）
+│  ├─ app.py           可嵌入组装：create_app / App.start / handle / wsgi / serve
+│  ├─ host.py          作为别人插件的入口：export(host) / wsgi_app()
 │  ├─ kernel/          薄内核：http 原语、静态资源、服务适配、上下文、事件/任务/视图
 │  ├─ module.py        模块契约：Module / 加载顺序 / api_version 校验
 │  ├─ common.py        模块共用的视图工具（来源名、设置快照、生效回调）
@@ -361,6 +363,9 @@ anime-rss-reader/
 ```
 
 ## API（想自己接脚本的话）
+
+下面所有 `/api/...` 路径都同时提供一份 `/api/v1/...` 别名（同一批 handler），
+新脚本建议用版本化前缀。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -448,6 +453,34 @@ hello = "my_hello_plugin:HelloModule"
 - 插件不能顶掉内置模块的 id，重名会被跳过；
 - 插件本身写坏了只会被跳过并打印原因，不会导致程序起不来；
 - 排障时用 `--no-third-party` 一次性关掉所有第三方插件。
+
+## 嵌入到别的项目
+
+反过来的方向也支持：把整个阅读器当成别人项目里的一个模块。**不用起进程、不用端口**，
+宿主直接调 `handle()` 拿响应：
+
+```python
+from anime_rss.host import create_app
+
+app = create_app(data_dir="./data/anime")       # 组装，不联网、不起服务
+resp = app.handle("GET", "/api/v1/items")       # 拿内核的 Response
+print(resp.status, resp.body[:80])
+app.stop()                                      # 停任务表、收尾模块、关库
+```
+
+宿主已经有 Web 框架时，用 WSGI 或把路由表交出去：
+
+```python
+from anime_rss.host import wsgi_app, export
+
+site = wsgi_app(data_dir="./data/anime")        # 标准 WSGI callable
+app = export(my_host, data_dir="./data/anime")  # 宿主有 route/add_route/mount 即可
+```
+
+`/api/v1/*` 与老的 `/api/*` 是同一批 handler，新接入方用版本化前缀，老路径继续可用。
+
+`create_app()` 只组装，`start()` 才启动任务表（自动刷新等），`stop()` 收尾；
+嵌入时默认不主动抓取网络，需要的话传 `fetch_on_start=True`。
 
 ## 常见问题
 
