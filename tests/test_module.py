@@ -50,13 +50,56 @@ class ModuleLoadingTest(_Tmp, unittest.TestCase):
         self.assertTrue(reg.has("schedule"))
         self.assertIs(ctx.schedule, reg.get("schedule").service)
 
-    def test_routes_under_module_namespace(self):
+    def test_all_builtin_modules_load(self):
+        reg = load_modules(self.ctx(), BUILTIN_MODULES)
+        self.assertEqual(sorted(reg.ids()),
+                         ["feeds", "reader", "schedule", "settings"])
+
+    def test_route_table_is_stable(self):
+        """模块化前后对外路由必须一模一样，少一条就是破坏兼容。"""
         ctx = self.ctx()
         load_modules(ctx, BUILTIN_MODULES)
-        for path in ctx.router.paths():
-            self.assertTrue(
-                path.endswith("/api/schedule") or "/api/schedule/" in path,
-                "模块路由越界：%s" % path)
+        expected = {
+            "DELETE /api/feeds/{fid}",
+            "DELETE /api/watches/{wid}",
+            "GET /api/item/{iid}",
+            "GET /api/items",
+            "GET /api/mirrors",
+            "GET /api/refresh",
+            "GET /api/schedule",
+            "GET /api/schedule/progress",
+            "GET /api/schedule/status",
+            "GET /api/settings",
+            "GET /api/watches",
+            "GET /feed.xml",
+            "GET /feed/{fid}",
+            "GET /feeds.opml",
+            "GET /opml.xml",
+            "GET /rss",
+            "GET /rss.xml",
+            "PATCH /api/feeds/{fid}",
+            "PATCH /api/watches/{wid}",
+            "POST /api/feeds",
+            "POST /api/maintenance",
+            "POST /api/read",
+            "POST /api/read-all",
+            "POST /api/refresh",
+            "POST /api/schedule/refresh",
+            "POST /api/settings",
+            "POST /api/settings/reset",
+            "POST /api/star",
+            "POST /api/watches",
+            "POST /api/watches/{wid}/scan",
+        }
+        got = set(ctx.router.paths())
+        self.assertEqual(sorted(expected - got), [], "模块少注册了路由")
+        self.assertEqual(sorted(got - expected), [], "模块多注册了路由")
+
+    def test_reader_depends_on_feeds(self):
+        order = []
+        load_modules(self.ctx(), BUILTIN_MODULES,
+                     log=lambda msg: order.append(msg.strip().split()[1]))
+        self.assertLess(order.index("feeds"), order.index("reader"))
 
     def test_classes_instantiated_per_load(self):
         a = load_modules(self.ctx(), BUILTIN_MODULES).get("schedule")
@@ -186,6 +229,55 @@ class ScheduleModuleTest(_Tmp, unittest.TestCase):
 
     def test_api_version_matches_kernel(self):
         self.assertEqual(self.mod.api_version, API_VERSION)
+
+
+class BootstrapFragmentTest(_Tmp, unittest.TestCase):
+    """首屏聚合靠各模块的 bootstrap(ctx) 片段，字段不能丢也不能变味。"""
+
+    def setUp(self):
+        super().setUp()
+        self.ctx_obj = self.ctx()
+        self.reg = load_modules(self.ctx_obj, BUILTIN_MODULES)
+
+    def test_feeds_fragment(self):
+        frag = self.reg.get("feeds").bootstrap(self.ctx_obj)
+        self.assertEqual(set(frag), {"sources", "feeds", "mirrors"})
+        self.assertGreaterEqual(len(frag["feeds"]), 1)
+        self.assertIn("sourceName", frag["feeds"][0])
+
+    def test_reader_fragment(self):
+        frag = self.reg.get("reader").bootstrap(self.ctx_obj)
+        self.assertEqual(set(frag), {"watches"})
+        self.assertIsInstance(frag["watches"], list)
+
+    def test_settings_fragment(self):
+        frag = self.reg.get("settings").bootstrap(self.ctx_obj)
+        self.assertEqual(set(frag), {"settings"})
+        self.assertIn("refreshInterval", frag["settings"])
+
+    def test_schedule_fragment(self):
+        frag = self.reg.get("schedule").bootstrap(self.ctx_obj)
+        self.assertEqual(set(frag), {"schedule"})
+        self.assertEqual(set(frag["schedule"]),
+                         {"total", "today", "updated", "running"})
+
+    def test_broken_module_does_not_break_bootstrap(self):
+        class Broken(Module):
+            id = "broken"
+            name = "会炸"
+            version = "1.0.0"
+
+            def setup(self, ctx):
+                pass
+
+            def bootstrap(self, ctx):
+                raise RuntimeError("故意的")
+
+        reg = load_modules(self.ctx_obj, list(BUILTIN_MODULES) + [Broken])
+        self.assertIn("broken", reg.ids())      # 加载不受影响
+        # 聚合时出错的模块被跳过，其它片段照旧
+        self.assertEqual(set(reg.get("settings").bootstrap(self.ctx_obj)),
+                         {"settings"})
 
 
 class SettingsDefineTest(_Tmp, unittest.TestCase):

@@ -28,6 +28,7 @@ class Module:
     api_version = API_VERSION
     depends = ()             # 依赖的其它模块 id
     builtin = True
+    ctx = None               # 由 load_modules 在 setup 之前注入
 
     # -------------------------------------------------- 生命周期
     def setup(self, ctx):
@@ -90,6 +91,7 @@ def load_modules(ctx, modules, log=None):
                 "模块 %s 要求 api_version=%r，当前内核是 %r"
                 % (mid, mod.api_version, API_VERSION))
         try:
+            mod.ctx = ctx                     # handler 里直接用 self.ctx
             mod.setup(ctx)
         except Exception as e:                        # noqa: BLE001 - 要原样带上原因
             raise ModuleError("模块 %s 加载失败：%s: %s"

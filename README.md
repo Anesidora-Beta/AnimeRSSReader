@@ -326,10 +326,11 @@ anime-rss-reader/
 ├─ anime_rss/          应用包（内核 / 模块 / API 三层分开）
 │  ├─ kernel/          薄内核：http 原语、静态资源、服务适配、应用上下文
 │  ├─ module.py        模块契约：Module / 加载顺序 / api_version 校验
-│  ├─ modules/         内置功能模块（schedule 已迁入，其余待迁）
-│  └─ api/             核心路由与 handler（条目、订阅、设置、导出）
+│  ├─ common.py        模块共用的视图工具（来源名、设置快照、生效回调）
+│  ├─ modules/         内置模块：feeds / reader / settings / schedule
+│  └─ api/             外壳：静态页、健康检查、/api/bootstrap 聚合
 ├─ smoke.py            端到端冒烟测试，68 项检查，重构安全网
-├─ tests/              模块契约单元测试（python -m unittest discover -s tests）
+├─ tests/              模块契约与单元测试（python -m unittest discover -s tests）
 ├─ docs/ARCHITECTURE.md 模块化与双向插件契约设计
 ├─ feeds.py            聚合引擎：多站抓取、镜像轮换、通用 RSS 解析、导出
 ├─ sources.py          各站适配层（源自原仓库，新增 AnimeGarden）

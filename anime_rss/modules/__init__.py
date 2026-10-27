@@ -6,9 +6,25 @@
 
 清单里放的是**类**不是实例：内核每次启动自己实例化，这样一个进程里
 起两个应用（嵌入场景）不会共用同一份状态。
+
+书写顺序不代表加载顺序 —— 加载顺序由各模块的 ``depends`` 拓扑排序决定。
 """
+from .feeds import FeedsModule
+from .reader import ReaderModule
 from .schedule import ScheduleModule
+from .settings import SettingsModule
 
-BUILTIN_MODULES = (ScheduleModule,)
+BUILTIN_MODULES = (
+    FeedsModule,
+    ReaderModule,
+    SettingsModule,
+    ScheduleModule,
+)
 
-__all__ = ["BUILTIN_MODULES", "ScheduleModule"]
+__all__ = [
+    "BUILTIN_MODULES",
+    "FeedsModule",
+    "ReaderModule",
+    "ScheduleModule",
+    "SettingsModule",
+]

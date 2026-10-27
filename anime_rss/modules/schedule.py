@@ -74,6 +74,9 @@ class ScheduleModule(Module):
             pass
 
     # ------------------------------------------------------------ 给别处用
+    def bootstrap(self, ctx):
+        return {"schedule": self.brief()}
+
     def brief(self):
         """侧栏「新番表」上那个数字：今天要播几部。"""
         sch = self.service

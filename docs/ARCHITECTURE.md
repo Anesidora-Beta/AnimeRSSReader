@@ -1,7 +1,7 @@
 # 架构设计：薄内核 + 双向插件契约
 
 > 目标版本线：v1.5.0 → v2.0.0
-> 状态：设计已定稿，P0 / P1 完成，P2 进行中（schedule 已迁完）
+> 状态：设计已定稿，P0 / P1 / P2 完成（四个模块全部迁完），下一步 P3
 
 ## 1. 三条硬约束
 
@@ -153,7 +153,7 @@ window.ARR = {
 |---|---|---|
 | **P0** ✅ | `smoke.py` 端到端冒烟 + 打 tag `v1.5.0` | 51 项全通过 |
 | **P1** ✅ | 抽 `kernel/`：路由表化、全局变量改 `ctx` 注入、静态资源挂载 | 功能零变化，`smoke.py` 68/68；`app.py` 1295 → 744 行，只剩组装与桌面代码 |
-| **P2** 🔄 | 按 `schedule` → `feeds`/`reader` → `settings` 拆模块 | 每拆一个跑一次冒烟，全绿才算完；**`schedule` 已迁完**（模块契约 + 14 项单测，`smoke.py` 仍 68/68） |
+| **P2** ✅ | 按 `schedule` → `feeds` → `reader` → `settings` 拆模块 | 四个模块迁完；`api/core.py` 447 → 84 行；路由 38 条逐条比对不变；27 项单测 + `smoke.py` 68/68 |
 | **P3** | 开放插件发现（entry_points + plugins/ 目录）+ 写示例插件验证契约 | 示例插件只靠公开 API 就能跑通 bus + jobs + 视图 |
 | **P4** | `create_app()` / `export(host)` / `/api/v1` + 文档 | 用一个最小宿主程序（10 行内）成功加载并访问 |
 
@@ -182,10 +182,10 @@ window.ARR = {
 
 | 目标 | 现状 | 说明 |
 |---|---|---|
-| `kernel/{router,assets,registry,config,jobs}.py` | `kernel/{http,assets,server,context}.py` + `module.py` | Router 放在 `http.py`；模块注册与版本校验在 `module.py`；`jobs` / `bus` 尚未抽象，仍用裸线程 |
+| `kernel/{router,assets,registry,config,jobs}.py` | `kernel/{http,assets,server,context}.py` + `module.py` + `common.py` | Router 放在 `http.py`；模块注册与版本校验在 `module.py`；模块共用的视图工具在 `common.py`（避免模块互相 import）；`jobs` / `bus` 尚未抽象，仍用裸线程 |
 | `ports/` + `adapters/` | 无独立目录 | 目前只有 stdlib 一种实现，按“只有一个实现时先不抽”的原则暂缓；`Request`/`Response` 已经与服务器实现解耦，是将来抽端口的位置 |
 | `domain/` | 逻辑仍在 `schedule.py` / `feeds.py` 里 | 等模块搬完再拆纯函数层，避免一边搬一边改语义 |
-| `modules/{feeds,reader,schedule}` | `modules/schedule.py` | 只有 schedule 迁完，其余仍在 `api/core.py` |
+| `modules/{feeds,reader,schedule}` | `modules/{feeds,reader,settings,schedule}.py` | 四个模块全部迁完；`api/core.py` 只剩静态页、健康检查与 bootstrap 聚合 |
 | 设置 schema 由模块自带 | ✅ `Settings.define(group, after=)` | 每个 `Settings` 实例一份 schema，模块登记、越界照旧夹紧、位置可控 |
 
 ### 现在写一个模块长什么样
@@ -199,7 +199,7 @@ class HelloModule(Module):
     id = "hello"                 # 路由前缀 /api/hello/，表前缀 mod_hello_
     name = "打招呼"
     version = "1.0.0"
-    depends = ("schedule",)      # 需要别的模块时写在这里，由内核排顺序
+    depends = ("feeds",)         # 需要别的模块时写在这里，由内核排顺序
 
     def setup(self, ctx):
         ctx.settings.define({    # 设置项自带，设置页自动多一个分组
@@ -207,15 +207,43 @@ class HelloModule(Module):
             "title": "打招呼",
             "items": [{"k": "helloName", "type": "text",
                        "label": "称呼", "default": "世界"}],
-        })
+        }, after="read")
         ctx.router.get("/api/hello", self.api_hello)
 
-    def apply_settings(self, values):   # 改设置时内核会回调，不用自己监听
+    def bootstrap(self, ctx):            # 贡献给首屏的那部分，可选
+        return {"hello": {"name": ctx.settings.get().get("helloName")}}
+
+    def apply_settings(self, values):    # 改设置时内核回调，不用自己监听
         self._name = values.get("helloName") or "世界"
 
     def api_hello(self, req):
-        return Response.json({"ok": True, "text": "你好，%s" % getattr(self, "_name", "世界")})
+        name = getattr(self, "_name", None) or self.ctx.settings.get()["helloName"]
+        return Response.json({"ok": True, "text": "你好，%s" % name})
 ```
 
 丢进 `anime_rss/modules/__init__.py` 的 `BUILTIN_MODULES` 就生效 —— 不用改 `app.py`，也不用改 `core.py`。
-`ctx` 目前提供：`store` / `settings` / `refresher` / `schedule` / `auto` / `ui` / `assets` / `router` / `port` / `lan_mode` / `data_dir` / `static_dir` / `module(id)`。
+
+内核在 `setup()` 之前会把 `ctx` 挂到模块上，所以 handler 里可以直接写 `self.ctx`。
+
+模块可用hook一览：
+
+| 钩子 | 何时调用 | 用途 |
+|---|---|---|
+| `setup(ctx)` | 启动时一次 | 建服务、挂路由、登记设置、建表 |
+| `bootstrap(ctx) -> dict` | 每次 `/api/bootstrap` | 贡献首屏数据；抛异常会被跳过，不影响别人 |
+| `apply_settings(values)` | 保存/重置设置后 | 让新配置立刻作用到自己身上 |
+| `teardown()` | 进程退出 | 停线程、关连接 |
+
+### 路由归属（P2 之后的实际情况）
+
+| 路径 | 归属 | 备注 |
+|---|---|---|
+| `/`、`/index.html`、`/favicon.ico`、`/healthz`、`/api/bootstrap` | core | 外壳与首屏聚合 |
+| `/api/feeds*`、`/api/mirrors`、`/api/refresh` | feeds | 订阅管理与抓取 |
+| `/feed.xml`、`/rss`、`/rss.xml`、`/feed/{id}`、`/opml.xml`、`/feeds.opml` | feeds | **留根路径**：这是用户填进阅读器的订阅地址，改前缀会让已有订阅全部失效 |
+| `/api/items`、`/api/item/{id}`、`/api/read*`、`/api/star` | reader | 条目与已读收藏 |
+| `/api/watches*` | reader | 关注规则 |
+| `/api/settings*`、`/api/maintenance` | settings | 设置与数据库维护 |
+| `/api/schedule*` | schedule | 新番放送表 |
+
+新模块请遵守 `/api/<id>/` 前缀；上面那些不带模块名的老路径是为了兼容保留的，不要再新增同类例外。
