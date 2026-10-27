@@ -1,0 +1,432 @@
+/* 深度搜索的样式。全部限定在 .sq- 前缀下，不碰主程序的类名。
+ *
+ * 颜色全部走主程序的 CSS 变量（static/style.css :root），并带兜底值 ——
+ * 这样主程序换主题时这里自动跟着变，插件单独打开也不会变成一片白字白底。
+ */
+
+.sq-wrap {
+  --sq-line: var(--line, #e5e8ee);
+  --sq-line-soft: var(--line-soft, #eef0f4);
+  --sq-panel: var(--panel, #fff);
+  --sq-panel2: var(--panel-2, #fafbfc);
+  --sq-fg: var(--fg, #14171c);
+  --sq-fg2: var(--fg-2, #5a6472);
+  --sq-fg3: var(--fg-3, #8d96a4);
+  --sq-accent: var(--accent, #2f6fed);
+  --sq-accent-soft: var(--accent-soft, #ebf1fe);
+  --sq-ok: var(--ok, #12924f);
+  --sq-warn: var(--warn, #b26a00);
+  max-width: 1080px;
+  margin: 0 auto;
+  color: var(--sq-fg);
+  font-family: var(--font, inherit);
+}
+
+/* ---------------------------------------------------------------- 头部 */
+
+.sq-wrap [hidden] { display: none !important; }
+
+.sq-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.sq-headinfo h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: .2px;
+}
+
+.sq-sub {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--sq-fg3);
+  line-height: 1.5;
+}
+
+.sq-help {
+  margin: -4px 0 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--sq-line);
+  border-radius: var(--r, 10px);
+  background: var(--sq-panel);
+  font-size: 12.5px;
+  color: var(--sq-fg2);
+}
+
+.sq-help b { color: var(--sq-fg); }
+.sq-help ul { margin: 6px 0 0; padding-left: 18px; }
+.sq-help li { margin: 2px 0; line-height: 1.7; }
+
+/* ---------------------------------------------------------------- 搜索行 */
+
+.sq-bar {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.sq-input {
+  flex: 1;
+  min-width: 0;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--sq-line);
+  border-radius: var(--r, 10px);
+  background: var(--sq-panel);
+  color: var(--sq-fg);
+  font-size: 13.5px;
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+}
+
+.sq-input::placeholder { color: var(--sq-fg3); }
+
+.sq-input:focus {
+  border-color: var(--sq-accent);
+  box-shadow: 0 0 0 3px var(--sq-accent-soft);
+}
+
+.sq-input-sm { height: 32px; font-size: 12.5px; }
+
+.sq-btn {
+  height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--sq-line);
+  border-radius: var(--r, 10px);
+  background: var(--sq-panel);
+  color: var(--sq-fg);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s, border-color .15s, color .15s;
+}
+
+.sq-btn:hover { background: var(--sq-panel2); border-color: var(--accent-line, #c3d6fd); }
+.sq-btn:disabled { opacity: .55; cursor: default; }
+
+.sq-btn-primary {
+  background: var(--sq-accent);
+  border-color: var(--sq-accent);
+  color: #fff;
+  font-weight: 600;
+  padding: 0 20px;
+}
+
+.sq-btn-primary:hover { background: var(--accent-fg, #1b52c9); border-color: var(--accent-fg, #1b52c9); }
+
+.sq-btn-ghost { height: 30px; padding: 0 10px; font-size: 12px; color: var(--sq-fg2); }
+.sq-btn-wide { width: 100%; margin-top: 4px; }
+
+/* ---------------------------------------------------------------- 源 chips */
+
+.sq-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 8px;
+}
+
+.sq-chip {
+  height: 27px;
+  padding: 0 11px;
+  border: 1px solid var(--sq-line);
+  border-radius: 999px;
+  background: var(--sq-panel);
+  color: var(--sq-fg3);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all .15s;
+}
+
+.sq-chip:hover { color: var(--sq-fg); border-color: var(--accent-line, #c3d6fd); }
+
+.sq-chip-on {
+  color: var(--accent-fg, #1b52c9);
+  background: var(--sq-accent-soft);
+  border-color: var(--accent-line, #c3d6fd);
+  font-weight: 600;
+}
+
+.sq-chip.sq-chip-bad { color: var(--sq-warn); border-color: #f0d9b5; }
+.sq-chip.sq-chip-ok { border-color: #cfe9db; }
+
+/* ---------------------------------------------------------------- 过滤行 */
+
+.sq-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 12px;
+  border: 1px solid var(--sq-line);
+  border-radius: var(--r, 10px);
+  background: var(--sq-panel2);
+}
+
+.sq-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--sq-fg3);
+}
+
+.sq-field select,
+.sq-field input {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--sq-line);
+  border-radius: var(--r-sm, 7px);
+  background: var(--sq-panel);
+  color: var(--sq-fg);
+  font-size: 12.5px;
+  outline: none;
+}
+
+.sq-field select:focus,
+.sq-field input:focus { border-color: var(--sq-accent); }
+
+/* ---------------------------------------------------------------- 组合 */
+
+.sq-combo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 0;
+}
+
+.sq-presets { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+
+.sq-preset {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 27px;
+  padding: 0 6px 0 10px;
+  border: 1px dashed var(--sq-line);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--sq-fg2);
+  cursor: pointer;
+}
+
+.sq-preset:hover { border-color: var(--sq-accent); color: var(--accent-fg, #1b52c9); }
+
+.sq-preset-x {
+  font-style: normal;
+  width: 16px;
+  height: 16px;
+  line-height: 15px;
+  text-align: center;
+  border-radius: 50%;
+  color: var(--sq-fg3);
+}
+
+.sq-preset-x:hover { background: #fdeaea; color: #c62828; }
+
+/* ---------------------------------------------------------------- 状态 */
+
+.sq-status {
+  margin: 14px 0 8px;
+  font-size: 12.5px;
+  color: var(--sq-fg2);
+  min-height: 18px;
+}
+
+.sq-status b { color: var(--sq-fg); }
+.sq-err { color: #c62828; }
+.sq-err-line { margin-top: 4px; font-size: 12px; color: var(--sq-warn); }
+.sq-hint { font-size: 12px; color: var(--sq-fg3); }
+
+.sq-spin {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 4px;
+  border: 2px solid var(--sq-line);
+  border-top-color: var(--sq-accent);
+  border-radius: 50%;
+  animation: sq-rot .7s linear infinite;
+  vertical-align: -1px;
+}
+
+@keyframes sq-rot { to { transform: rotate(360deg); } }
+
+/* ---------------------------------------------------------------- 列表 */
+
+.sq-list { display: flex; flex-direction: column; gap: 8px; }
+
+.sq-item {
+  position: relative;
+  padding: 11px 13px 12px;
+  border: 1px solid var(--sq-line);
+  border-radius: var(--r, 10px);
+  background: var(--sq-panel);
+  box-shadow: var(--shadow-sm, 0 1px 2px rgba(16, 24, 40, .05));
+  transition: border-color .15s, box-shadow .15s;
+}
+
+.sq-item:hover {
+  border-color: var(--accent-line, #c3d6fd);
+  box-shadow: var(--shadow, 0 6px 18px rgba(16, 24, 40, .08));
+}
+
+.sq-item .sq-title {
+  margin: 0 34px 6px 0;
+  font-size: 13.5px;
+  font-weight: 550;
+  line-height: 1.55;
+  color: var(--sq-fg);
+  cursor: pointer;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.sq-item .sq-title:hover { color: var(--accent-fg, #1b52c9); }
+
+.sq-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--sq-fg3);
+}
+
+.sq-meta i { font-style: normal; opacity: .45; }
+.sq-meta .sq-src { color: var(--sq-fg2); font-weight: 600; }
+
+.sq-tag {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--sq-accent-soft);
+  color: var(--accent-fg, #1b52c9);
+  font-size: 11px;
+}
+
+.sq-acts {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity .15s;
+}
+
+.sq-item:hover .sq-acts { opacity: 1; }
+
+.sq-act {
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--sq-line);
+  border-radius: 999px;
+  background: var(--sq-panel);
+  color: var(--sq-fg2);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.sq-act:hover { color: var(--accent-fg, #1b52c9); border-color: var(--sq-accent); }
+
+.sq-empty {
+  padding: 34px 20px;
+  border: 1px dashed var(--sq-line);
+  border-radius: var(--r-lg, 14px);
+  text-align: center;
+  color: var(--sq-fg2);
+  background: var(--sq-panel2);
+}
+
+.sq-empty b { display: block; margin-bottom: 6px; color: var(--sq-fg); }
+.sq-empty p { margin: 0; font-size: 12.5px; line-height: 1.7; }
+
+.sq-more { margin: 12px 0 6px; text-align: center; }
+
+/* 手机上按钮一直显示，否则没法用（没有 hover） */
+@media (hover: none) {
+  .sq-acts { position: static; opacity: 1; margin-top: 8px; }
+  .sq-item .sq-title { margin-right: 0; }
+}
+
+/* ---------------------------------------------------------------- 图形筛选
+ * 上面那排是给不想记语法的人用的：必含 / 排除 / 字幕组 / 体积。
+ * 每个框对应语法里的一个符号（+词 / -词 / 字幕组: / size>），
+ * 所以底下「高级语法」还在，两套入口改的是同一个 Query。
+ */
+
+.sq-filters-main {
+  background: var(--sq-panel);
+  border-style: dashed;
+}
+
+.sq-field-grow { flex: 1 1 240px; }
+.sq-field-grow .sq-input { width: 100%; }
+
+.sq-filters .sq-input {
+  min-width: 96px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--sq-line);
+  border-radius: var(--r-sm, 7px);
+  background: var(--sq-panel2);
+  color: var(--sq-fg);
+  font-size: 12.5px;
+  outline: none;
+}
+
+.sq-filters .sq-input:focus {
+  border-color: var(--sq-accent);
+  box-shadow: 0 0 0 3px var(--sq-accent-soft);
+}
+
+/* 「整次搜索存为关注」：和普通按钮区分开，这是会把东西写进关注列表的动作 */
+.sq-btn-watch {
+  height: 30px;
+  padding: 0 12px;
+  font-size: 12.5px;
+  color: var(--sq-accent);
+  border-color: var(--sq-accent);
+  background: var(--sq-accent-soft);
+}
+
+.sq-btn-watch:hover { background: var(--sq-accent); color: var(--accent-fg, #fff); }
+.sq-btn-watch:disabled { opacity: .6; cursor: default; }
+
+/* 结果卡片上的「关注」 */
+.sq-act.sq-watch { color: var(--sq-fg2); }
+
+.sq-act.sq-watch:hover {
+  color: var(--sq-accent);
+  border-color: var(--sq-accent);
+  background: var(--sq-accent-soft);
+}
+
+.sq-act.sq-watch-on,
+.sq-act.sq-watch-on:hover {
+  color: var(--sq-accent);
+  border-color: var(--sq-accent);
+  background: var(--sq-accent-soft);
+  cursor: default;
+}
+
+/* 关注规则和检索条件不等价时的说明（比如时间窗不进关注规则） */
+.sq-note {
+  margin-top: 6px;
+  padding: 6px 9px;
+  border-left: 2px solid var(--sq-accent);
+  border-radius: 0 var(--r-sm, 7px) var(--r-sm, 7px) 0;
+  background: var(--sq-accent-soft);
+  color: var(--sq-fg2);
+  font-size: 12px;
+  line-height: 1.7;
+}

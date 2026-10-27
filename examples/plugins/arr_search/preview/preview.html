@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>深度搜索 · 界面预览（假数据）</title>
+<link rel="stylesheet" href="../static/view.css">
+<style>
+  /* 复刻主程序 static/style.css 的 :root 变量，让预览与真实外观一致 */
+  :root {
+    --bg: #f5f6f8; --panel: #ffffff; --panel-2: #fafbfc; --rail: #fbfbfc;
+    --line: #e5e8ee; --line-soft: #eef0f4; --fg: #14171c; --fg-2: #5a6472;
+    --fg-3: #8d96a4; --accent: #2f6fed; --accent-soft: #ebf1fe;
+    --accent-line: #c3d6fd; --accent-fg: #1b52c9; --ok: #12924f; --warn: #b26a00;
+    --shadow-sm: 0 1px 2px rgba(16, 24, 40, .05);
+    --shadow: 0 10px 30px rgba(16, 24, 40, .09);
+    --r-sm: 7px; --r: 10px; --r-lg: 14px;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+            "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font);
+    font-size: 14px; -webkit-font-smoothing: antialiased;
+  }
+  .demo-note {
+    max-width: 1080px; margin: 0 auto; padding: 12px 20px 0;
+    font-size: 12px; color: var(--fg-3);
+  }
+  .demo-note b { color: var(--accent-fg); }
+  .plugin-host { max-width: 1120px; margin: 0 auto; padding: 14px 20px 40px; }
+</style>
+</head>
+<body>
+<div class="demo-note">
+  <b>离线预览</b>：数据是假的（真实结果来自 2022 年的动漫花园/AnimeGarden/Nyaa）。
+  装进 AnimeRSSReader 后，这个视图由 <code>/plug/search/view.js</code> 加载，界面完全一致。
+</div>
+<div class="plugin-host" id="pluginHost"></div>
+
+<script>
+/* ---------- 1. 极简 ARR 替身：只为让 view.js 能注册并被挂载 ---------- */
+(function () {
+  var views = {};
+  window.ARR = {
+    version: 1,
+    registerView: function (spec) { views[spec.id] = spec; window.__SPEC = spec; return true; },
+    getView: function (id) { return views[id] || null; },
+    views: function () { return Object.keys(views); },
+    on: function () {}, off: function () {}, emit: function () {},
+    toast: function (m) { toast(m); },
+    esc: esc,
+    api: { get: get, send: send },
+    openItem: function () {}
+  };
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  var tipBox = null;
+  function toast(msg) {
+    if (!tipBox) {
+      tipBox = document.createElement("div");
+      tipBox.style.cssText = "position:fixed;left:50%;bottom:28px;transform:translateX(-50%);" +
+        "background:#14171c;color:#fff;padding:8px 14px;border-radius:8px;font-size:12.5px;" +
+        "z-index:99;opacity:0;transition:opacity .2s;pointer-events:none";
+      document.body.appendChild(tipBox);
+    }
+    tipBox.textContent = msg;
+    tipBox.style.opacity = "1";
+    clearTimeout(tipBox._t);
+    tipBox._t = setTimeout(function () { tipBox.style.opacity = "0"; }, 1800);
+  }
+
+  /* ---------- 2. 假数据（结构与后端 /api/search 一致） ---------- */
+  var DATA = [
+    { id: "p1", source: "animegarden", sourceName: "AnimeGarden", ts: 1658995200, size: "13.5 GiB",
+      seeders: 26, title: "[7³ACG] 鬼灭之刃 游郭篇 / 鬼滅の刃 遊郭編 / Kimetsu no Yaiba Yuukaku Hen [BDRip 1920x1080 HEVC FLAC]",
+      magnet: "magnet:?xt=urn:btih:aaaa", alsoIn: ["dmhy"] },
+    { id: "p2", source: "dmhy", sourceName: "动漫花园", ts: 1657065600, size: "", seeders: null,
+      title: "【肥羊-Raws 12th anniversary】[鬼灭之刃 游郭篇][鬼滅の刃 遊郭編][BDRip][1080P][x265_flac]",
+      magnet: "magnet:?xt=urn:btih:bbbb", alsoIn: [] },
+    { id: "p3", source: "nyaa", sourceName: "Nyaa", ts: 1634198400, size: "31.6 GiB", seeders: 8,
+      title: "[FLE] Kimetsu no Yaiba - S01 REPACK (BD 1080p HEVC x265 10-bit FLAC)",
+      magnet: "magnet:?xt=urn:btih:cccc", alsoIn: [] },
+    { id: "p4", source: "animegarden", sourceName: "AnimeGarden", ts: 1646956800, size: "6.3 GiB",
+      seeders: 41, title: "[酷漫404][鬼灭之刃 无限列车篇][01-07][1080P][BDRip][简日双语(内嵌+外挂)][HEVC]",
+      magnet: "magnet:?xt=urn:btih:dddd", alsoIn: ["acgrip"] },
+    { id: "p5", source: "acgrip", sourceName: "ACG.RIP", ts: 1647907200, size: "21.7 GiB", seeders: 12,
+      title: "【豌豆字幕组&风之圣殿字幕组】★10月新番[鬼灭之刃 / Kimetsu no Yaiba][01-44(S1+S2)][BDRip 1080p][简繁外挂]",
+      magnet: "magnet:?xt=urn:btih:eeee", alsoIn: [] },
+    { id: "p6", source: "acgrip", sourceName: "ACG.RIP", ts: 1620000000, size: "7.9 GiB", seeders: 3,
+      title: "[猎户不鸽发布组] 鬼灭之刃 游郭篇 Kimetsu no Yaiba - Yuukaku-hen [01-11][BDRip 1080p HEVC AAC]",
+      magnet: "magnet:?xt=urn:btih:ffff", alsoIn: [] },
+    { id: "p7", source: "local", sourceName: "本地库", ts: 1650000000, size: "1.4 GiB", seeders: 5,
+      title: "[樱都字幕组][鬼灭之刃][01][1080p][简体内嵌]", magnet: "magnet:?xt=urn:btih:gggg",
+      alsoIn: [], local: true, starred: true },
+    { id: "p8", source: "dmhy", sourceName: "动漫花园", ts: 1641175200, size: "", seeders: null,
+      title: "[Skymoon-Raws] 劇場版「鬼滅之刃」無限列車編 / Kimetsu no Yaiba Mugen Train [BDRip 1080p HEVC]",
+      magnet: "magnet:?xt=urn:btih:hhhh", alsoIn: [] }
+  ];
+
+  var PROVIDERS = [
+    { id: "animegarden", name: "AnimeGarden", home: "https://animes.garden", kind: "online",
+      note: "聚合动漫花园/萌番组，支持时间区间 + 深度翻页，找旧帖首选",
+      caps: ["date", "fansub", "keyword", "paging"], pageSize: 100, maxPages: 40,
+      health: { ok: true, ms: 736, count: 80 } },
+    { id: "dmhy", name: "动漫花园", home: "https://share.dmhy.org", kind: "online",
+      note: "搜索 RSS 一次 500 条、可回溯数年，但不支持翻页",
+      caps: ["keyword"], pageSize: 500, maxPages: 1,
+      health: { ok: true, ms: 1060, count: 500 } },
+    { id: "nyaa", name: "Nyaa", home: "https://nyaa.si", kind: "online",
+      note: "国际站；RSS 不翻页，这里读列表页，每页 75 条可持续往后翻",
+      caps: ["keyword", "paging"], pageSize: 75, maxPages: 40,
+      health: { ok: true, ms: 1585, count: 150 } },
+    { id: "acgrip", name: "ACG.RIP", home: "https://acg.rip", kind: "online",
+      note: "每页 30 条、可翻页；画质向字幕组多，旧番留档较全",
+      caps: ["keyword", "paging"], pageSize: 30, maxPages: 40,
+      health: { ok: true, ms: 2321, count: 60 } },
+    { id: "mikan", name: "蜜柑计划", home: "https://mikanani.me", kind: "online",
+      note: "搜索一次 100 条、不能翻页；只给种子直链（磁力需自行转换）",
+      caps: ["keyword"], pageSize: 100, maxPages: 1,
+      health: { ok: true, ms: 7193, count: 100 } },
+    { id: "bangumi", name: "萌番组", home: "https://bangumi.moe", kind: "online",
+      note: "没有搜索接口：有关键词时只在最近几页里筛，配合时间区间才好用",
+      caps: ["paging"], pageSize: 30, maxPages: 60, health: { ok: true, ms: 2220, count: 30 } },
+    { id: "local", name: "本地库", home: "", kind: "local",
+      note: "只查已抓取入库的条目，不联网；断网时的兜底",
+      caps: ["local"], pageSize: 100, maxPages: 20, health: {} }
+  ];
+
+  var TIPS = [
+    "空格是「任一命中」，+ 是「必须含」，- 是「排除」",
+    "字幕组:樱都  /  类型:动画  /  src:dmhy,nyaa",
+    "after:2022-01-01 也可以写 after:3y（三年前）",
+    "size>1G 只留大于 1G 的；sort:seeders 按做种数排",
+    "找不到就加深度：pages:10，或直接圈时间区间"
+  ];
+
+  var PRESETS = [
+    { id: 1, name: "老番考古", query: "鬼灭 -粤语", sources: ["animegarden", "dmhy"], mode: "3", sort: "date", used: 3 }
+  ];
+
+  // 预览里的关注列表：只为了让「关注」按钮有反馈，退出页面就没了
+  var WATCHES = [];
+  var WATCHED = {};
+
+  function parseQuery(str) {
+    var out = { terms: [], must: [], exclude: [], src: null, after: "", before: "", limit: 30, page: 1 };
+    (str || "").split(/\s+/).forEach(function (tok) {
+      if (!tok) return;
+      var sign = tok[0] === "+" || tok[0] === "-" ? tok[0] : "";
+      var body = sign ? tok.slice(1) : tok;
+      var kv = body.split(":");
+      var key = kv[0].toLowerCase();
+      if (kv.length > 1) {
+        var val = kv.slice(1).join(":");
+        if (key === "src") out.src = val.split(",");
+        else if (key === "after" || key === "from") out.after = val;
+        else if (key === "before" || key === "to") out.before = val;
+        else if (key === "字幕组" || key === "fansub") out.fansub = val;
+        else out.terms.push(body.toLowerCase());
+        return;
+      }
+      if (sign === "+") out.must.push(body.toLowerCase());
+      else if (sign === "-") out.exclude.push(body.toLowerCase());
+      else out.terms.push(body.toLowerCase());
+    });
+    return out;
+  }
+
+  function fakeSearch(url) {
+    var qs = new URLSearchParams(url.split("?")[1] || "");
+    var q = parseQuery(qs.get("q") || "");
+    var srcs = (qs.get("src") || "").split(",").filter(Boolean);
+    var after = qs.get("after") || q.after;
+    var before = qs.get("before") || q.before;
+    var sort = qs.get("sort") || "date";
+    var limit = parseInt(qs.get("limit"), 10) || 30;
+    var page = parseInt(qs.get("page"), 10) || 1;
+
+    // 图形面板的参数和后端一样：并进同一套条件，不是覆盖
+    function words(v) {
+      return (v || "").split(/[\s,]+/).filter(Boolean).map(function (x) {
+        return x.toLowerCase();
+      });
+    }
+    words(qs.get("must")).forEach(function (w) { q.must.push(w); });
+    words(qs.get("exclude")).forEach(function (w) { q.exclude.push(w); });
+    var fansub = (qs.get("fansub") || "").toLowerCase();
+    var sizeMin = sizeBytes(qs.get("sizeMin") || "");
+
+    var afterTs = after ? Date.parse(after + "T00:00:00") / 1000 : 0;
+    var beforeTs = before ? Date.parse(before + "T23:59:59") / 1000 : 0;
+
+    var items = DATA.filter(function (it) {
+      var hay = (it.title + " " + (it.author || "")).toLowerCase();
+      if (srcs.length && srcs.indexOf(it.source) < 0) return false;
+      if (q.must.length && q.must.some(function (t) { return hay.indexOf(t) < 0; })) return false;
+      if (q.exclude.some(function (t) { return hay.indexOf(t) >= 0; })) return false;
+      if (fansub && hay.indexOf(fansub) < 0) return false;
+      if (sizeMin && sizeBytes(it.size) < sizeMin) return false;
+      if (q.terms.length && !q.terms.some(function (t) { return hay.indexOf(t) >= 0; })) return false;
+      if (afterTs && it.ts < afterTs) return false;
+      if (beforeTs && it.ts > beforeTs) return false;
+      return true;
+    });
+
+    if (sort === "seeders") items.sort(function (a, b) { return (b.seeders || 0) - (a.seeders || 0); });
+    else if (sort === "size") items.sort(function (a, b) { return sizeBytes(b.size) - sizeBytes(a.size); });
+    else items.sort(function (a, b) { return b.ts - a.ts; });
+
+    var hasMore = items.length > limit * page;
+    var slice = items.slice((page - 1) * limit, page * limit);
+
+    return {
+      ok: true, items: slice, count: slice.length, raw: 592, matched: items.length,
+      hasMore: hasMore, cached: false, took: 2350,
+      query: {
+        raw: qs.get("q"), sources: srcs, sort: sort, pages: 3, page: page,
+        anyTerms: q.terms, must: q.must, exclude: q.exclude,
+        fansub: fansub, sizeMin: sizeMin, sizeMax: 0
+      },
+      sources: PROVIDERS.filter(function (p) { return p.kind !== "local"; })
+        .filter(function (p) { return !srcs.length || srcs.indexOf(p.id) >= 0; })
+        .map(function (p) {
+          return Object.assign({}, p.health, { id: p.id, name: p.name, pages: 2,
+            hasMore: true, note: "第 1 页", error: "" });
+        }),
+      explain: [{ id: "animegarden", name: "AnimeGarden",
+        caps: ["date", "fansub", "keyword", "paging"],
+        pushed: { keyword: q.must.concat(q.terms).join(" "), after: after || "" },
+        local: (q.exclude.length ? ["排除：" + q.exclude.join(" / ")] : []), notes: [] }]
+    };
+  }
+
+  /** 预览里沿用后端那套体积解析，1G / 500M 都认。 */
+  function sizeBytes(s) {
+    var m = /^\s*([\d.]+)\s*([KMGT])?\s*(?:i?B)?\s*$/i.exec(s || "");
+    if (!m) return 0;
+    var unit = (m[2] || "B").toUpperCase();
+    return Math.round(parseFloat(m[1]) * Math.pow(1024, "BKMGT".indexOf(unit)));
+  }
+
+  function get(url) {
+    return new Promise(function (resolve) {
+      setTimeout(function () {
+        if (url.indexOf("/api/search/providers") === 0) {
+          resolve({ ok: true, providers: PROVIDERS, defaults: ["animegarden", "dmhy", "nyaa", "acgrip", "bangumi", "local"], pages: 3, tips: TIPS });
+        } else if (url.indexOf("/api/search/presets") === 0) {
+          resolve({ ok: true, presets: PRESETS, history: [] });
+        } else if (url.indexOf("/api/search") === 0) {
+          resolve(fakeSearch(url));
+        } else resolve({ ok: false, error: "预览里没有这个接口" });
+      }, 260);
+    });
+  }
+
+  function send(method, url, body) {
+    return new Promise(function (resolve) {
+      setTimeout(function () {
+        if (url.indexOf("/api/search/keep") === 0) {
+          resolve({ ok: true, added: 1, starred: 1, feed: "search_keep", feedName: "搜索收藏" });
+        } else if (url.indexOf("/api/search/watch/status") === 0) {
+          var out = {};
+          (body.items || []).forEach(function (it) {
+            if (WATCHED[it.id]) out[it.id] = WATCHED[it.id];
+          });
+          resolve({ ok: true, watched: out });
+        } else if (url.indexOf("/api/search/watch") === 0) {
+          var name = (body.q || "").trim().split(/\s+/)[0] || body.fansub || "未命名关注";
+          var wid = "w:" + name;
+          var w = WATCHES.filter(function (x) { return x.id === wid; })[0];
+          var created = false;
+          if (!w) {
+            w = { id: wid, name: name, include: name, total: 0 };
+            WATCHES.push(w);
+            created = true;
+          }
+          var list = body.items || [];
+          if (!list.length && body.all) {
+            list = DATA.filter(function (it) {
+              return (it.title + " " + (it.author || "")).toLowerCase()
+                .indexOf(name.toLowerCase()) >= 0;
+            });
+          }
+          var n = 0;
+          list.forEach(function (it) {
+            if (!WATCHED[it.id]) { WATCHED[it.id] = wid; n += 1; }
+          });
+          w.total += n;
+          resolve({
+            ok: true, created: created, attached: n, addedToStore: n,
+            skipped: Math.max(0, list.length - n),
+            watch: w, feed: "watch:" + wid,
+            // 真实后端只在条件被丢掉时才给 notes，这里固定给一条，
+            // 好让预览能看到「规则和检索条件不等价」的提示长什么样
+            notes: ["关注规则只保存 关键词 / 排除 / 字幕组 / 来源；时间和体积只影响本次检索"]
+          });
+        } else if (url.indexOf("/api/search/presets") === 0) {
+          if (method === "DELETE") { PRESETS = PRESETS.filter(function (p) { return "/api/search/presets/" + p.id !== url; }); resolve({ ok: true, presets: PRESETS }); }
+          else {
+            PRESETS.push({ id: Date.now(), name: body.name, query: body.query, sources: body.sources, mode: body.mode, sort: body.sort, used: 0 });
+            resolve({ ok: true, presets: PRESETS });
+          }
+        } else resolve({ ok: true });
+      }, 200);
+    });
+  }
+
+  /* ---------- 3. view.js 加载完后，用它注册的视图挂载 ---------- */
+  window.addEventListener("load", function () {
+    var spec = window.__SPEC;
+    var host = document.getElementById("pluginHost");
+    if (!spec) { host.innerHTML = "<p>view.js 没有注册视图</p>"; return; }
+    spec.mount(host, {
+      id: "search",
+      api: { get: get, send: send },
+      toast: toast, esc: esc,
+      on: function () {}, off: function () {}, emit: function () {},
+      openItem: function () {},
+      theme: "light", boot: { baseUrl: "" }, baseUrl: ""
+    });
+    // 预览直接跑一次，省得看着空页面：用图形框那套，顺便演示「不用写语法」
+    setTimeout(function () {
+      var box = document.getElementById("sqQ");
+      if (box) { box.value = "鬼灭"; }
+      var ex = document.getElementById("sqExclude");
+      if (ex) { ex.value = "粤语"; }
+      var go = document.getElementById("sqGo");
+      if (go) go.click();
+    }, 400);
+  });
+})();
+</script>
+<script src="../static/view.js"></script>
+</body>
+</html>

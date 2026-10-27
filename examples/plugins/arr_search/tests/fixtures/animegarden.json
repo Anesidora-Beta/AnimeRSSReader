@@ -1,0 +1,54 @@
+{
+ "status": "OK",
+ "resources": [
+  {
+   "id": 2451349,
+   "provider": "dmhy",
+   "providerId": "724294",
+   "title": "[沸班亚马制作组] 剧场版 鬼灭之刃 无限城篇 第一章 猗窝座再袭 V2 [BILIBILI WebRip 2160p HEVC AAC][简繁内封字幕]",
+   "href": "https://share.dmhy.org/topics/view/724294_V2_BILIBILI_WebRip_2160p_HEVC_AAC.html",
+   "type": "动画",
+   "magnet": "magnet:?xt=urn:btih:4F7NZYMA4GN3YDT4NQU3N3I6RHIXP3LZ",
+   "size": 13099650048,
+   "createdAt": "2026-08-05T19:29:00.000Z",
+   "fetchedAt": "2026-08-05T19:35:00.002Z",
+   "publisher": {
+    "id": 33,
+    "name": "B站沸羊羊都得叫我师傅",
+    "avatar": "https://pic.superbed.cc/item/674853e2fa9f77b4dc31709a.png"
+   },
+   "fansub": {
+    "id": 672,
+    "name": "沸班亚马制作组",
+    "avatar": "https://maxpcimg.online/i/2025/04/18/68019e3c3d78a.jpg"
+   }
+  },
+  {
+   "id": 2450332,
+   "provider": "dmhy",
+   "providerId": "724014",
+   "title": "[晚街与灯][鬼灭之刃 无限城篇 第一章 猗窝座再袭_Kimetsu no Yaiba: Mugenjou Hen - Movie 01 - Akaza Sairai][BDRip][1080P_HEVC-10bit_FLAC][简繁日双语外挂PGS]",
+   "href": "https://share.dmhy.org/topics/view/724014_Kimetsu_no_Yaiba_Mugenjou_Hen_-_Movie_01_-_Akaza_Sairai_BDRip_1080P_HEVC-10bit_FLAC_PGS.html",
+   "type": "动画",
+   "magnet": "magnet:?xt=urn:btih:YXVZM6DUV5J3RLI6RG2ICRNRTD7FYMPZ",
+   "size": 14280765440,
+   "createdAt": "2026-08-02T02:33:00.000Z",
+   "fetchedAt": "2026-09-26T00:08:32.489Z",
+   "publisher": {
+    "id": 4329,
+    "name": "晚街与灯",
+    "avatar": "https://cdn.jsdelivr.net/gh/banngai2022/tuchuang/img/%E5%A4%B4%E5%83%8F_2.png"
+   }
+  }
+ ],
+ "pagination": {
+  "page": 1,
+  "pageSize": 3,
+  "complete": false
+ },
+ "filter": {
+  "search": [
+   "鬼灭"
+  ]
+ }
+}

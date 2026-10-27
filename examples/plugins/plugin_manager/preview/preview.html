@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>插件管理 · 界面预览（假数据）</title>
+<link rel="stylesheet" href="../static/view.css">
+<style>
+  /* 复刻主程序 static/style.css 的 :root 变量，让预览与真实外观一致 */
+  :root {
+    --bg: #f5f6f8; --panel: #ffffff; --panel-2: #fafbfc; --rail: #fbfbfc;
+    --line: #e5e8ee; --line-soft: #eef0f4; --fg: #14171c; --fg-2: #5a6472;
+    --fg-3: #8d96a4; --accent: #2f6fed; --accent-soft: #ebf1fe;
+    --accent-line: #c3d6fd; --accent-fg: #1b52c9; --ok: #12924f;
+    --ok-soft: #e6f7ee; --warn: #b26a00;
+    --shadow-sm: 0 1px 2px rgba(16, 24, 40, .05);
+    --shadow: 0 10px 30px rgba(16, 24, 40, .09);
+    --r-sm: 7px; --r: 10px; --r-lg: 14px;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+            "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  }
+  /* 主程序在 html[data-theme="dark"] 里换掉的变量，预览也要有一份 */
+  html[data-theme="dark"] {
+    --bg: #0f1115; --panel: #16181d; --panel-2: #1a1d23; --rail: #121419;
+    --line: #262a32; --line-soft: #20242b; --fg: #e9ecf1; --fg-2: #a1aab8;
+    --fg-3: #737d8c; --accent: #5b8dff; --accent-soft: #1b2437;
+    --accent-line: #2d3f63; --accent-fg: #8aaeff; --ok: #34d17f;
+    --ok-soft: #122b1f; --warn: #e2a33c;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, .3);
+    --shadow: 0 14px 40px rgba(0, 0, 0, .5);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font);
+    font-size: 14px; -webkit-font-smoothing: antialiased;
+  }
+  .demo-note {
+    max-width: 1180px; margin: 0 auto; padding: 12px 20px 0;
+    font-size: 12px; color: var(--fg-3); line-height: 1.6;
+  }
+  .demo-note b { color: var(--accent-fg); }
+  .demo-note code {
+    font-family: var(--mono); font-size: 11.5px; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 4px; padding: 0 4px;
+  }
+  .demo-switch {
+    max-width: 1180px; margin: 8px auto 0; padding: 0 20px;
+    font-size: 12px; color: var(--fg-3);
+  }
+  .demo-switch button {
+    font-family: inherit; font-size: 11.5px; padding: 3px 9px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--panel); color: var(--fg-2);
+    border-radius: 6px; margin-right: 6px;
+  }
+  .plugin-host { max-width: 1220px; margin: 0 auto; padding: 10px 20px 40px; }
+</style>
+</head>
+<body>
+<div class="demo-note">
+  <b>离线预览</b>：数据是假的，但版式、状态色、按钮与详情交互都是真的 ——
+  装进 AnimeRSSReader 后这个视图由 <code>/plug/pluginmgr/view.js</code> 加载，界面完全一致。
+  假数据里刻意放了「正常 / 停用 / 加载失败 / 回收站 / 内置」五种状态。
+</div>
+<div class="demo-switch">
+  <button onclick="setTheme('')">浅色</button>
+  <button onclick="setTheme('dark')">深色</button>
+</div>
+<div class="plugin-host" id="pluginHost"></div>
+
+<script>
+function setTheme(t) {
+  if (t) document.documentElement.setAttribute("data-theme", t);
+  else document.documentElement.removeAttribute("data-theme");
+}
+
+/* ---------- 假数据：结构与 /api/pluginmgr 一致 ---------- */
+var NOW = Math.floor(Date.now() / 1000);
+
+var ENTRIES = [
+  {
+    id: "search", name: "深度搜索", version: "1.0.0", apiVersion: "1",
+    builtin: false, loaded: true, enabled: true, state: "normal", stateText: "运行中",
+    dirname: "arr_search", bucket: "plugins", isSelf: false,
+    path: "F:\\AnimeRSSReader\\plugins\\arr_search",
+    relPath: "arr_search", kind: "package", size: 263168, files: 30,
+    mtime: NOW - 3600 * 5, sizeText: "257.0 KB",
+    summary: "跨源站按需检索历史帖子，突破「只拉最新 200 条」的限制；" +
+      "结果可以一键挂进关注列表。",
+    moduleClass: "SearchModule",
+    file: "F:\\AnimeRSSReader\\plugins\\arr_search\\module.py",
+    depends: [], routes: [
+      "GET /api/search", "GET /api/search/providers", "GET /api/search/presets",
+      "POST /api/search/presets", "DELETE /api/search/presets/{pid}",
+      "GET /api/search/history", "GET /api/search/keep", "POST /api/search/keep",
+      "POST /api/search/watch", "GET /api/search/watches",
+      "POST /api/search/watch/status", "POST /api/search/cache/clear"
+    ],
+    views: ["search"], settings: ["searchSources", "searchPages", "searchTimeout",
+      "searchCache", "searchKeepStar"], assets: true,
+    canDisable: true, canEnable: false, canReload: true, canRemove: true,
+    canRestore: false, soft: false, warnings: []
+  },
+  {
+    id: "hello", name: "示例插件", version: "0.1.0", apiVersion: "1",
+    builtin: false, loaded: true, enabled: true, state: "normal", stateText: "运行中",
+    dirname: "hello_plug", bucket: "plugins", isSelf: false,
+    path: "F:\\AnimeRSSReader\\plugins\\hello_plug", relPath: "hello_plug",
+    kind: "package", size: 4096, files: 3, mtime: NOW - 600, sizeText: "4.0 KB",
+    summary: "一个最小的插件样板：声明视图、挂一条 /api/hello 路由。",
+    moduleClass: "HelloModule",
+    file: "F:\\AnimeRSSReader\\plugins\\hello_plug\\__init__.py",
+    depends: [], routes: ["GET /api/hello"], views: ["hello"], settings: [],
+    assets: true, canDisable: true, canEnable: false, canReload: true,
+    canRemove: true, canRestore: false, soft: false, warnings: []
+  },
+  {
+    id: "banggumi_rank", name: "番组排行", version: "0.2.0", apiVersion: "1",
+    builtin: false, loaded: false, enabled: false, state: "broken",
+    stateText: "加载失败", dirname: "banggumi_rank", bucket: "plugins",
+    isSelf: false, path: "F:\\AnimeRSSReader\\plugins\\banggumi_rank",
+    relPath: "banggumi_rank", kind: "package", size: 12288, files: 5,
+    mtime: NOW - 86400 * 3, sizeText: "12.0 KB", summary: "",
+    moduleClass: "", file: "",
+    depends: [], routes: [], views: [], settings: [], assets: false,
+    canDisable: true, canEnable: true, canReload: false, canRemove: true,
+    canRestore: false, soft: false,
+    warnings: ["语法错误（第 41 行）：invalid syntax",
+      "目录正常但没加载成功，可能 id 与内置模块重名（内置优先，插件会被跳过）"]
+  },
+  {
+    id: "old_grid", name: "旧版封面墙", version: "0.8.1", apiVersion: "1",
+    builtin: false, loaded: false, enabled: false, state: "disabled",
+    stateText: "已停用", dirname: "old_grid", bucket: ".disabled", isSelf: false,
+    path: "F:\\AnimeRSSReader\\plugins\\.disabled\\old_grid", relPath: ".disabled/old_grid",
+    kind: "package", size: 51200, files: 9, mtime: NOW - 86400 * 20,
+    sizeText: "50.0 KB",
+    summary: "按季度铺一墙封面；停用是因为它每 5 分钟抓一次图，流量太大。",
+    moduleClass: "GridModule", file: "", depends: ["search"], routes: [],
+    views: [], settings: [], assets: true,
+    canDisable: false, canEnable: true, canReload: false, canRemove: false,
+    canRestore: false, soft: false,
+    warnings: ["还在停用区里，随时可以点「启用」装回来"]
+  },
+  {
+    id: "tmdb_score", name: "评分补全", version: "1.2.0", apiVersion: "1",
+    builtin: false, loaded: false, enabled: false, state: "removed",
+    stateText: "已卸载", dirname: "tmdb_score@20261020-1812", bucket: ".removed",
+    isSelf: false,
+    path: "F:\\AnimeRSSReader\\plugins\\.removed\\tmdb_score@20261020-1812",
+    relPath: ".removed/tmdb_score@20261020-1812", kind: "package",
+    size: 20480, files: 6, mtime: NOW - 86400 * 8, sizeText: "20.0 KB",
+    summary: "", moduleClass: "ScoreModule", file: "", depends: [], routes: [],
+    views: [], settings: [], assets: false,
+    canDisable: false, canEnable: true, canReload: false, canRemove: false,
+    canRestore: true, soft: false,
+    warnings: ["还在回收站里，可以恢复"]
+  },
+  {
+    id: "pluginmgr", name: "插件管理", version: "1.0.0", apiVersion: "1",
+    builtin: false, loaded: true, enabled: true, state: "normal", stateText: "运行中",
+    dirname: "plugin_manager", bucket: "plugins", isSelf: true,
+    path: "F:\\AnimeRSSReader\\plugins\\plugin_manager", relPath: "plugin_manager",
+    kind: "package", size: 102400, files: 12, mtime: NOW - 120, sizeText: "100.0 KB",
+    summary: "你现在看的这个页面。",
+    moduleClass: "PluginManagerModule",
+    file: "F:\\AnimeRSSReader\\plugins\\plugin_manager\\module.py",
+    depends: [], routes: ["GET /api/pluginmgr", "POST /api/pluginmgr/action"],
+    views: ["pluginmgr"], settings: ["pmAutoSoft"], assets: true,
+    canDisable: true, canEnable: false, canReload: true, canRemove: true,
+    canRestore: false, soft: false, warnings: []
+  },
+  { id: "feeds", name: "订阅源", version: "1.0.0", apiVersion: "1", builtin: true,
+    loaded: true, enabled: true, state: "core", stateText: "内置", dirname: "",
+    bucket: "", isSelf: false, path: "", relPath: "", kind: "builtin", size: 0,
+    files: 0, mtime: 0, sizeText: "", summary: "", moduleClass: "",
+    file: "", depends: [], routes: ["GET /api/feeds"], views: [], settings: [],
+    assets: false, canDisable: false, canEnable: false, canReload: false,
+    canRemove: false, canRestore: false, soft: false, warnings: [] },
+  { id: "reader", name: "阅读与关注", version: "1.0.0", apiVersion: "1", builtin: true,
+    loaded: true, enabled: true, state: "core", stateText: "内置", dirname: "",
+    bucket: "", isSelf: false, path: "", relPath: "", kind: "builtin", size: 0,
+    files: 0, mtime: 0, sizeText: "", summary: "", moduleClass: "",
+    file: "", depends: [], routes: [], views: [], settings: [], assets: false,
+    canDisable: false, canEnable: false, canReload: false, canRemove: false,
+    canRestore: false, soft: false, warnings: [] },
+  { id: "schedule", name: "新番放送表", version: "1.0.0", apiVersion: "1", builtin: true,
+    loaded: true, enabled: true, state: "core", stateText: "内置", dirname: "",
+    bucket: "", isSelf: false, path: "", relPath: "", kind: "builtin", size: 0,
+    files: 0, mtime: 0, sizeText: "", summary: "", moduleClass: "",
+    file: "", depends: [], routes: [], views: [], settings: [], assets: false,
+    canDisable: false, canEnable: false, canReload: false, canRemove: false,
+    canRestore: false, soft: false, warnings: [] }
+];
+
+var DATA = {
+  ok: true,
+  env: {
+    root: "F:\\AnimeRSSReader\\plugins", rootExists: true, writable: true,
+    platform: "win32", coreVersion: "2.1.0", apiVersion: "1",
+    dataDir: "F:\\AnimeRSSReader\\data", moduleId: "pluginmgr"
+  },
+  entries: ENTRIES,
+  counts: { total: 6, on: 3, off: 2, bad: 1, core: 3, trash: 1 },
+  issues: [
+    { id: "banggumi_rank", name: "番组排行", state: "broken", level: "error",
+      text: "语法错误（第 41 行）：invalid syntax" },
+    { id: "old_grid", name: "旧版封面墙", state: "disabled", level: "warn",
+      text: "还在停用区里，随时可以点「启用」装回来" },
+    { id: "tmdb_score", name: "评分补全", state: "removed", level: "warn",
+      text: "还在回收站里，可以恢复" }
+  ],
+  trash: [
+    { id: "old_grid", name: "旧版封面墙", dirname: "old_grid", token: "old_grid",
+      sizeText: "50.0 KB", mtime: NOW - 86400 * 20, state: "disabled" },
+    { id: "tmdb_score", name: "评分补全", dirname: "tmdb_score@20261020-1812",
+      token: "tmdb_score@20261020-1812", sizeText: "20.0 KB",
+      mtime: NOW - 86400 * 8, state: "removed" }
+  ],
+  notes: { old_grid: "等它把抓图间隔改成可配置再开" },
+  journal: [],
+  serverTime: NOW
+};
+
+var DETAIL = {
+  search: Object.assign({}, ENTRIES[0], {
+    fileList: [
+      { path: "__init__.py", size: 2117 }, { path: "module.py", size: 22140 },
+      { path: "query.py", size: 15233 }, { path: "model.py", size: 9121 },
+      { path: "net.py", size: 6620 }, { path: "storage.py", size: 8113 },
+      { path: "watchbridge.py", size: 9344 }, { path: "providers/base.py", size: 5602 },
+      { path: "providers/animegarden.py", size: 6711 },
+      { path: "providers/nyaa.py", size: 5883 },
+      { path: "static/view.js", size: 31042 }, { path: "static/view.css", size: 11293 }
+    ],
+    source: {
+      path: "module.py",
+      text: "# -*- coding: utf-8 -*-\n\"\"\"深度搜索模块：把「只能看最新 200 条」这件事补上。\"\"\"\n" +
+        "import os\nimport threading\n\nfrom anime_rss.kernel.http import Response\n" +
+        "from anime_rss.module import Module\n\n\nclass SearchModule(Module):\n" +
+        "    id = \"search\"\n    name = \"深度搜索\"\n    version = \"1.0.0\"\n"
+    },
+    notes: ""
+  }),
+  hello: Object.assign({}, ENTRIES[1], {
+    fileList: [{ path: "__init__.py", size: 438 },
+            { path: "static/view.js", size: 96 }],
+    source: { path: "__init__.py", text:
+      "# -*- coding: utf-8 -*-\nfrom anime_rss.module import Module\n" +
+      "from anime_rss.kernel.http import Response\n\n\nclass HelloModule(Module):\n" +
+      "    id = \"hello\"\n    name = \"示例插件\"\n    version = \"0.1.0\"\n" },
+    notes: ""
+  })
+};
+
+ENTRIES.forEach(function (e) {
+  if (DETAIL[e.id]) return;
+  DETAIL[e.id] = Object.assign({}, e, {
+    fileList: e.path ? [{ path: "__init__.py", size: 512 }] : [],
+    source: {}, notes: DATA.notes[e.id] || ""
+  });
+});
+
+/* ---------- 极简 ARR 替身：只为让 view.js 能注册并被挂载 ---------- */
+(function () {
+  var views = {};
+  window.ARR = {
+    version: 1,
+    registerView: function (spec) {
+      views[spec.id] = spec;
+      window.__SPEC = spec;
+      return true;
+    },
+    getView: function (id) { return views[id] || null; },
+    views: function () { return Object.keys(views); },
+    on: function () {}, off: function () {}, emit: function () {},
+    toast: function (m) { toast(m); },
+    esc: esc,
+    api: { get: get, send: send },
+    openItem: function () {}
+  };
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  function toast(msg) {
+    var el = document.getElementById("demoToast");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "demoToast";
+      el.style.cssText = "position:fixed;left:50%;bottom:26px;transform:translateX(-50%);" +
+        "background:#14171c;color:#fff;padding:8px 14px;border-radius:8px;font-size:12.5px;" +
+        "z-index:99;opacity:0;transition:opacity .18s";
+      document.body.appendChild(el);
+    }
+    el.textContent = msg;
+    el.style.opacity = "1";
+    clearTimeout(el._t);
+    el._t = setTimeout(function () { el.style.opacity = "0"; }, 1900);
+  }
+
+  /* 假的 GET：/api/pluginmgr、detail、file 三条 */
+  function get(path) {
+    return new Promise(function (resolve) {
+      setTimeout(function () {
+        if (path.indexOf("/api/pluginmgr/detail") === 0) {
+          var id = decodeURIComponent((path.split("id=")[1] || "").split("&")[0]);
+          resolve(DETAIL[id] ? Object.assign({ ok: true }, DETAIL[id])
+                             : { ok: false, error: "没有这个插件" });
+          return;
+        }
+        if (path.indexOf("/api/pluginmgr/file") === 0) {
+          resolve({ ok: true, path: "__init__.py", text:
+            "# 预览模式：真实文件内容在程序里读取\n" });
+          return;
+        }
+        resolve(DATA);
+      }, 30);
+    });
+  }
+
+  /* 假的 POST：只回一个「预览模式不真的动文件」 */
+  function send(method, path, body) {
+    return new Promise(function (resolve) {
+      setTimeout(function () {
+        if (path.indexOf("/action") > 0) {
+          resolve({ ok: true, steps: ["预览模式：不会真的移动目录"],
+                    action: (body || {}).action });
+          return;
+        }
+        resolve({ ok: true, path: "F:\\AnimeRSSReader\\plugins" });
+      }, 120);
+    });
+  }
+
+  window.addEventListener("load", function () {
+    // 方便截图 / 直观看详情：?theme=dark&open=search
+    var qs = location.search || "";
+    if (/theme=dark/.test(qs)) setTheme("dark");
+
+    var host = document.getElementById("pluginHost");
+    if (window.__SPEC) window.__SPEC.mount(host, {
+      id: "pluginmgr",
+      api: { get: get, send: send },
+      toast: toast, esc: esc,
+      on: function () {}, off: function () {}, emit: function () {},
+      openItem: function () {}, theme: "light", boot: {}, baseUrl: ""
+    });
+
+    var m = /open=([^&]+)/.exec(qs);
+    if (m) {
+      setTimeout(function () {
+        var b = document.querySelector(
+          '.pm-card[data-id="' + decodeURIComponent(m[1]) + '"] [data-act="toggle"]');
+        if (b) b.click();
+      }, 150);
+    }
+  });
+})();
+</script>
+<script src="../static/view.js"></script>
+</body>
+</html>
