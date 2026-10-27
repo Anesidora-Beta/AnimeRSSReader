@@ -10,6 +10,7 @@ WORKDIR /app
 
 # 只复制运行必需的文件
 COPY app.py feeds.py store.py sources.py textutil.py schedule.py settings.py ./
+COPY anime_rss/ ./anime_rss/
 COPY static/ ./static/
 
 ENV PYTHONUNBUFFERED=1 \

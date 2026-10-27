@@ -322,7 +322,12 @@ data/reader.db     SQLite：订阅源配置、条目、已读/收藏状态、关
 
 ```
 anime-rss-reader/
-├─ app.py              HTTP 服务 + API 路由 + 窗口监督 + 启动逻辑
+├─ app.py              组装层：拼上下文、挂路由与静态资源、窗口监督、启动参数
+├─ anime_rss/          应用包（内核与 API 分居两侧，模块化改造中）
+│  ├─ kernel/          薄内核：http 原语、静态资源、服务适配、应用上下文
+│  └─ api/             核心路由与 handler（原 app.py 里的 if/elif 链）
+├─ smoke.py            端到端冒烟测试，68 项检查，重构安全网
+├─ docs/ARCHITECTURE.md 模块化与双向插件契约设计
 ├─ feeds.py            聚合引擎：多站抓取、镜像轮换、通用 RSS 解析、导出
 ├─ sources.py          各站适配层（源自原仓库，新增 AnimeGarden）
 ├─ schedule.py         新番放送表：四个平台的放送时间抓取、跨平台合并、周历缓存

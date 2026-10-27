@@ -69,14 +69,14 @@ def free_port():
     return port
 
 
-def request(base, path, method="GET", body=None, timeout=10):
+def request(base, path, method="GET", body=None, timeout=10, headers=None):
     """返回 (status, headers, bytes)。HTTP 错误码不抛异常。"""
     data = None
-    headers = {}
+    hdrs = dict(headers or {})
     if body is not None:
         data = json.dumps(body).encode("utf-8")
-        headers["Content-Type"] = "application/json"
-    req = urllib.request.Request(base + path, data=data, headers=headers, method=method)
+        hdrs["Content-Type"] = "application/json"
+    req = urllib.request.Request(base + path, data=data, headers=hdrs, method=method)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.status, dict(r.headers), r.read()
@@ -241,6 +241,68 @@ def main():
         ck.eq("恢复默认 200", status, 200)
         ck.eq("恢复默认后间隔 30",
               ((reset or {}).get("values") or {}).get("refreshInterval"), 30)
+
+        # ---------- 写接口与协议细节 ----------
+        print()
+        print("  写接口 / 协议")
+        status, created = jget(base, "/api/watches", "POST",
+                               {"name": "冒烟关注", "include": "冒烟关键词"})
+        ck.eq("新建关注 200", status, 200)
+        wid = ((created or {}).get("watch") or {}).get("id")
+
+        if wid:
+            status, renamed = jget(base, "/api/watches/" + wid, "PATCH",
+                                   {"name": "改过名的关注"})
+            names = [w.get("name") for w in (renamed or {}).get("watches") or []]
+            ck.eq("关注改名 200", status, 200)
+            ck.check("改名已生效", "改过名的关注" in names, names[:3])
+
+            status, scan = jget(base, "/api/watches/%s/scan" % wid, "POST", {})
+            ck.eq("单个关注扫描 200", status, 200)
+
+            status, deleted = jget(base, "/api/watches/" + wid, "DELETE")
+            ck.eq("删除关注 200", status, 200)
+        else:
+            ck.check("新建关注返回 watch.id", False, created)
+
+        status, made = jget(base, "/api/feeds", "POST",
+                            {"url": "https://example.invalid/rss.xml",
+                             "title": "冒烟订阅"}, timeout=30)
+        ck.eq("新建订阅 200", status, 200)
+        fid = None
+        for f in (made or {}).get("feeds") or []:
+            if f.get("title") == "冒烟订阅":
+                fid = f.get("id")
+        ck.check("新订阅出现在列表", bool(fid), [f.get("title") for f in (made or {}).get("feeds") or []][:4])
+        if fid:
+            status, patched = jget(base, "/api/feeds/" + fid, "PATCH",
+                                   {"title": "冒烟订阅2"})
+            ck.eq("订阅改名 200", status, 200)
+            status, _, raw = request(base, "/feed/%s.xml" % fid, timeout=15)
+            ck.eq("单源导出 200", status, 200)
+            status, _ = jget(base, "/api/feeds/" + fid, "DELETE")
+            ck.eq("删除订阅 200", status, 200)
+
+        builtin = [f for f in (boot or {}).get("feeds") or [] if f.get("kind") == "builtin"]
+        if builtin:
+            status, _ = jget(base, "/api/feeds/" + builtin[0]["id"], "DELETE")
+            ck.eq("内置频道拒绝删除", status, 400)
+        else:
+            ck.check("存在内置频道", False, "bootstrap.feeds 里没有 kind=builtin")
+
+        status, _, raw = request(base, "/opml.xml")
+        ck.eq("导出 OPML 200", status, 200)
+        ck.check("OPML 内容正确", b"opml" in raw.lower())
+
+        status, hdrs, raw = request(base, "/", "HEAD")
+        ck.eq("HEAD 200", status, 200)
+        ck.check("HEAD 无响应体", raw == b"", "body=%d" % len(raw))
+        ck.check("HEAD 仍带 Content-Type", "Content-Type" in hdrs, list(hdrs)[:4])
+
+        status, hdrs, _ = request(base, "/assets/app.js",
+                                  headers={"Accept-Encoding": "gzip"})
+        ck.check("大资源 gzip", hdrs.get("Content-Encoding") == "gzip",
+                 hdrs.get("Content-Encoding"))
 
         # ---------- 维护与错误处理 ----------
         print()
