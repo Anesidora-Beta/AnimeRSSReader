@@ -12,6 +12,9 @@
 """
 from . import API_VERSION
 
+import os
+import sys
+
 __all__ = ["Module", "ModuleRegistry", "load_modules", "ModuleError"]
 
 
@@ -29,6 +32,12 @@ class Module:
     depends = ()             # 依赖的其它模块 id
     builtin = True
     ctx = None               # 由 load_modules 在 setup 之前注入
+
+    # 可选：前端视图声明与静态目录（目录名相对模块文件所在目录）
+    #   views = ({"id": "hello", "title": "示例", "script": "view.js"},)
+    #   assets = "static"    → /plug/hello/view.js
+    views = ()
+    assets = ""
 
     # -------------------------------------------------- 生命周期
     def setup(self, ctx):
@@ -96,12 +105,62 @@ def load_modules(ctx, modules, log=None):
         except Exception as e:                        # noqa: BLE001 - 要原样带上原因
             raise ModuleError("模块 %s 加载失败：%s: %s"
                               % (mid, type(e).__name__, e)) from e
+        _register_extras(mod, mid, ctx, say)
         loaded.append(mod)
         say("  模块 %-10s v%-7s %s" % (mid, mod.version, mod.name))
 
     registry = ModuleRegistry(loaded)
     ctx.modules = registry
     return registry
+
+
+def unload_modules(registry, log=None):
+    """按加载的逆序 teardown，单个模块出错不影响其它模块。"""
+    say = log or (lambda msg: None)
+    if registry is None:
+        return 0
+    done = 0
+    for mod in reversed(registry.all()):
+        hook = getattr(mod, "teardown", None)
+        if not callable(hook):
+            continue
+        try:
+            hook()
+            done += 1
+        except Exception as e:                        # noqa: BLE001 - 退出阶段不能因为一个模块卡住
+            say("  模块 %s 收尾失败：%s: %s" % (getattr(mod, "id", "?"),
+                                              type(e).__name__, e))
+    return done
+
+
+def _register_extras(mod, mid, ctx, say):
+    """把模块声明的前端视图 / 静态目录交给内核登记。
+
+    这一步是**尽力而为**：视图坏了只少一个入口，不该让整个模块起不来。
+    真正的契约硬性部分（id、api_version、依赖）在 load_modules 里已经校验过。
+    """
+    reg = getattr(ctx, "views", None)
+    if reg is None:
+        return
+
+    folder = getattr(mod, "assets", "") or ""
+    if folder:
+        base = _module_dir(mod)
+        if not base or not reg.mount(mid, os.path.join(base, folder)):
+            say("  视图       %s 的静态目录不存在：%s" % (mid, folder))
+
+    for spec in getattr(mod, "views", ()) or ():
+        try:
+            reg.register(mid, spec)
+        except Exception as e:                        # noqa: BLE001 - 视图是可选的
+            say("  视图       %s 跳过：%s" % (mid, e))
+
+
+def _module_dir(mod):
+    """模块文件所在目录（插件从任意路径加载时也适用）。"""
+    module = sys.modules.get(type(mod).__module__)
+    path = getattr(module, "__file__", "") or ""
+    return os.path.dirname(os.path.abspath(path)) if path else ""
 
 
 def _instantiate(item):

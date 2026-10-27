@@ -1,7 +1,7 @@
 # 架构设计：薄内核 + 双向插件契约
 
 > 目标版本线：v1.5.0 → v2.0.0
-> 状态：设计已定稿，P0 / P1 / P2 完成；P3 进行中（插件发现与示例插件已完成，bus / jobs / 前端视图待做）
+> 状态：设计已定稿，P0 / P1 / P2 / P3 完成；P4 待做（`create_app()` / `export(host)` / `/api/v1`）
 
 ## 1. 三条硬约束
 
@@ -89,17 +89,23 @@ class Manifest(NamedTuple):
 
 ```python
 def setup(ctx):
-    ctx.log.info("schedule 模块启动")
+    ctx.say("schedule 模块启动")
 
     ctx.router.get("/api/schedule", list_handler)       # 自动挂到 /api/schedule/*
     ctx.router.post("/api/schedule/refresh", refresh)
 
     ctx.settings.define(group="schedule", items=[...])  # 设置页自动出现，无需改中央文件
-    ctx.db.migrate("001_init", SQL)                     # 自己前缀的表 + 迁移记录
-    ctx.jobs.every(3600, refresh_all)                   # 替代裸 thread，退出时自动收尾
-    ctx.bus.on("item.new", on_item)                     # 跨模块只走事件
-    ctx.ui.add_view(id="schedule", title="新番放送表",
-                    script="schedule.js", style="schedule.css")
+    ctx.every(3600, refresh_all, name="schedule.refresh")  # 替代裸 thread，退出时自动收尾
+    ctx.on("refresh.finished", on_refresh_done)         # 跨模块只走事件
+```
+
+前端视图不在这里写代码，而是**声明**（见 4.5）：
+
+```python
+class HelloModule(Module):
+    views = ({"id": "hello", "title": "示例插件", "script": "view.js",
+              "style": "view.css", "order": 50},)
+    assets = "static"          # → /plug/hello/view.js
 ```
 
 三条边界规则（守住这三条，加十个模块也不会重新腐化）：
@@ -116,15 +122,43 @@ def setup(ctx):
 
 ```js
 window.ARR = {
-  registerView({ id, title, icon, mount(el, ctx), unmount }),   // 侧栏自动出现
-  registerSettingPanel({ id, render(el, schema) }),             // 需要自定义控件时用
-  registerCommand({ id, title, keys, run }),                    // 快捷键/命令面板
-  on(event, fn), emit(event, payload),                          // 与后端 bus 同名事件
-  api: { get(path), post(path, body) }                          // 自动加模块前缀
+  version: 1,
+  registerView({ id, title, icon, mount(el, ctx), unmount }),  // 侧栏自动多一个入口
+  getView(id), views(),                                        // 查已注册视图
+  on(event, fn) / off(event, fn) / emit(event, payload),        // 与后端 bus 同名事件
+  toast(msg), esc(str), openItem(id),                           // 常用小工具
+  api: { get(path), send(method, path, body) }                  // 同一套请求封装
 }
 ```
 
-模块自带 `static/<id>/` 目录，内核挂到 `/assets/<id>/`，按需 `import()` 加载。**不引入打包器**——这是这个项目“改一行就能生效”的根基。
+`view.js` 里能拿到的 `ctx`（**只增不改**，废弃字段保留两个版本）：
+
+| 字段 | 说明 |
+|---|---|
+| `ctx.id` | 视图 id |
+| `ctx.api.get/send` | 与主程序同一套 fetch 封装 |
+| `ctx.toast/esc` | 提示条、转义 |
+| `ctx.on/off/emit` | 前端事件总线（与后端 bus 同名，但各走各的进程） |
+| `ctx.openItem(id)` | 跳到阅读区打开某条更新 |
+| `ctx.theme/boot/baseUrl` | 主题、首屏数据、服务地址 |
+
+加载方式：后端 `bootstrap.views` 给出清单（含脚本、样式 URL），前端按清单 `<script>` 顺序加载；
+模块静态目录由内核挂到 `/plug/<模块 id>/`，**不打包、不 import()、不做哈希**。
+改动 `view.js` 刷新页面即生效，这是“改一行就能看到”的根基。
+
+### 4.5 三个内核能力（P3 落地）
+
+| 能力 | 文件 | 用法 | 语义 |
+|---|---|---|---|
+| 事件总线 | `kernel/bus.py` | `ctx.on(event, fn)` / `ctx.emit(event, payload)` | 同步分发；handler 抛异常只记日志，不影响发布方与其它订阅方；支持 `"*"` 通配与 `once` |
+| 定时任务 | `kernel/jobs.py` | `ctx.every(秒, fn, name=)` / `ctx.later(延迟, fn)` | 单调度线程 + 每次执行一个工作线程；上次没跑完就跳过这一拍；`jobs.stop()` 在退出时统一收尾 |
+| 前端视图 | `kernel/views.py` | 模块声明 `views` + `assets` | 视图 id 重名/脚本缺失 → 只跳过该视图并记日志，模块照常加载；静态文件读取做真实路径校验，`..`/绝对路径/符号链接逃逸一律 404 |
+
+约定事件名 `命名空间.动作`：`app.started`、`app.stopping`、`refresh.started`、`refresh.finished`、
+`feed.updated`。第三方请用自己的模块 id 作前缀，不要占用别人的命名空间。
+
+运行状态可观测：`GET /api/jobs` 看每个任务的 `runs / errors / nextIn / lastError`，
+`GET /api/views` 看当前注册的所有视图。模块不需要自己写监控接口。
 
 ## 5. 方向 B：本项目作为别人的插件
 
@@ -154,7 +188,7 @@ window.ARR = {
 | **P0** ✅ | `smoke.py` 端到端冒烟 + 打 tag `v1.5.0` | 51 项全通过 |
 | **P1** ✅ | 抽 `kernel/`：路由表化、全局变量改 `ctx` 注入、静态资源挂载 | 功能零变化，`smoke.py` 68/68；`app.py` 1295 → 744 行，只剩组装与桌面代码 |
 | **P2** ✅ | 按 `schedule` → `feeds` → `reader` → `settings` 拆模块 | 四个模块迁完；`api/core.py` 447 → 84 行；路由 38 条逐条比对不变；27 项单测 + `smoke.py` 68/68 |
-| **P3** 🔄 | 开放插件发现（entry_points + plugins/ 目录）+ 写示例插件验证契约 | 发现机制与示例插件已完成（`discovery.py` + `examples/plugins/hello.py`，8 项单测）；`bus` / `jobs` / 前端视图注册还没做 |
+| **P3** ✅ | 开放插件发现（entry_points + plugins/ 目录）+ `bus` / `jobs` / 前端视图注册 | 发现机制 + 示例插件（`discovery.py` + `examples/plugins/hello.py`，含自带界面）；`bus` / `jobs` / `views` 三个内核件落地，`auto-refresh` 与启动预热改由任务表管；67 → 69 项单测、`smoke.py` 77/77；无头浏览器实测插件视图可渲染 |
 | **P4** | `create_app()` / `export(host)` / `/api/v1` + 文档 | 用一个最小宿主程序（10 行内）成功加载并访问 |
 
 原则：**每一阶段结束时应用都要能跑**。不出现“改到一半不能用”的状态，任何一步不对就停下，不硬推。
@@ -182,13 +216,14 @@ window.ARR = {
 
 | 目标 | 现状 | 说明 |
 |---|---|---|
-| `kernel/{router,assets,registry,config,jobs}.py` | `kernel/{http,assets,server,context}.py` + `module.py` + `common.py` | Router 放在 `http.py`；模块注册与版本校验在 `module.py`；模块共用的视图工具在 `common.py`（避免模块互相 import）；`jobs` / `bus` 尚未抽象，仍用裸线程 |
+| `kernel/{router,assets,registry,config,jobs}.py` | `kernel/{http,assets,server,context,bus,jobs,views}.py` + `module.py` + `common.py` | Router 放在 `http.py`；模块注册与版本校验在 `module.py`；`bus` / `jobs` / `views` 已补齐；`config` 由 `Settings.define` 代替，不做独立文件 |
 | `ports/` + `adapters/` | 无独立目录 | 目前只有 stdlib 一种实现，按“只有一个实现时先不抽”的原则暂缓；`Request`/`Response` 已经与服务器实现解耦，是将来抽端口的位置 |
 | `domain/` | 逻辑仍在 `schedule.py` / `feeds.py` 里 | 等模块搬完再拆纯函数层，避免一边搬一边改语义 |
 | `modules/{feeds,reader,schedule}` | `modules/{feeds,reader,settings,schedule}.py` | 四个模块全部迁完；`api/core.py` 只剩静态页、健康检查与 bootstrap 聚合 |
 | 设置 schema 由模块自带 | ✅ `Settings.define(group, after=)` | 每个 `Settings` 实例一份 schema，模块登记、越界照旧夹紧、位置可控 |
 | `registry.py` 插件发现 | ✅ `discovery.py` | entry_points（组 `anime_rss.plugins`）+ 本地 `plugins/` 目录；内置优先、坏插件只跳过不拖垮启动；`--no-third-party` 可整体关闭 |
-| `bus.py` / `jobs.py` | ❌ 未做 | 跨模块通信现在只能走 `ctx.module(id)` 拿对方实例；定时任务仍是裸线程 |
+| `bus.py` / `jobs.py` | ✅ `kernel/bus.py` / `kernel/jobs.py` | 跨模块只走 `ctx.on/emit`；定时任务统一进 `ctx.jobs`，退出时 `jobs.stop()` + `unload_modules()` 收尾，`/api/jobs` 可看运行状态 |
+| 前端视图注册 | ✅ `kernel/views.py` + `ARR.registerView` | 模块声明 `views`/`assets`，脚本从 `/plug/<id>/` 加载；侧栏入口自动生成，坏视图只跳过自己 |
 
 ### 现在写一个模块长什么样
 
@@ -231,16 +266,19 @@ class HelloModule(Module):
 
 | 钩子 | 何时调用 | 用途 |
 |---|---|---|
-| `setup(ctx)` | 启动时一次 | 建服务、挂路由、登记设置、建表 |
+| `setup(ctx)` | 启动时一次 | 建服务、挂路由、登记设置、登记任务/订阅事件 |
 | `bootstrap(ctx) -> dict` | 每次 `/api/bootstrap` | 贡献首屏数据；抛异常会被跳过，不影响别人 |
 | `apply_settings(values)` | 保存/重置设置后 | 让新配置立刻作用到自己身上 |
-| `teardown()` | 进程退出 | 停线程、关连接 |
+| `teardown()` | 进程退出 | 停线程、关连接（任务表已由内核统一停） |
+| `views` / `assets`（类属性） | 加载时（`setup` 之后） | 声明前端视图与静态目录；声明式，不用写注册代码 |
 
-### 路由归属（P2 之后的实际情况）
+### 路由归属（P3 之后的实际情况）
 
 | 路径 | 归属 | 备注 |
 |---|---|---|
 | `/`、`/index.html`、`/favicon.ico`、`/healthz`、`/api/bootstrap` | core | 外壳与首屏聚合 |
+| `/api/views`、`/api/jobs` | core | 已注册视图、任务运行状态（可观测性，模块不用自己写） |
+| `/plug/<模块 id>/*` | core | 转发到 `ViewRegistry`，只读各模块声明的静态目录，穿越一律 404 |
 | `/api/feeds*`、`/api/mirrors`、`/api/refresh` | feeds | 订阅管理与抓取 |
 | `/feed.xml`、`/rss`、`/rss.xml`、`/feed/{id}`、`/opml.xml`、`/feeds.opml` | feeds | **留根路径**：这是用户填进阅读器的订阅地址，改前缀会让已有订阅全部失效 |
 | `/api/items`、`/api/item/{id}`、`/api/read*`、`/api/star` | reader | 条目与已读收藏 |

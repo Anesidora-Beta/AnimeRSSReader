@@ -27,6 +27,9 @@ class CoreApi:
         r.get("/healthz", self.health)
         r.get("/api/health", self.health)
         r.get("/api/bootstrap", self.bootstrap)
+        r.get("/api/views", self.views)
+        r.get("/api/jobs", self.jobs)
+        r.get("/plug/{mid}/{name:path}", self.plugin_asset)
         r.post("/api/open-window", self.open_window)
         return self
 
@@ -53,6 +56,31 @@ class CoreApi:
                                   "reason": "当前实例没有窗口监督器"})
         return Response.json({"ok": True, "opened": self.ctx.ui.request_open()})
 
+    # ------------------------------------------------------------ 插件资源与运行状态
+    def plugin_asset(self, req):
+        """模块自带的前端资源：/plug/<模块 id>/<文件>。
+
+        目录穿越在 ViewRegistry.read 里拦掉，这里只负责把结果包成响应。
+        """
+        reg = self.ctx.views
+        if reg is None:
+            return Response.err("当前实例没有视图注册表", 404)
+        got = reg.read(req.params["mid"], req.params["name"])
+        if got is None:
+            return Response.err("资源不存在", 404)
+        data, ctype = got
+        return Response(data, ctype, cache="no-cache")
+
+    def views(self, req):
+        reg = self.ctx.views
+        items = reg.manifest() if reg is not None else []
+        return Response.json({"ok": True, "views": items})
+
+    def jobs(self, req):
+        if self.ctx.jobs is None:
+            return Response.json({"ok": True, "running": False, "jobs": []})
+        return Response.json(self.ctx.jobs.status())
+
     # ------------------------------------------------------------ 首屏聚合
     def bootstrap(self, req):
         ctx = self.ctx
@@ -68,6 +96,7 @@ class CoreApi:
                     "ip": ctx.lan_url().split("//")[-1].split(":")[0]},
             "baseUrl": ctx.base_url(req),
             "serverTime": int(time.time()),
+            "views": ctx.views.manifest() if ctx.views is not None else [],
         }
         # 各模块的摘要：谁有 bootstrap(ctx) 就并进来，出错的模块不影响首屏
         if ctx.modules is not None:

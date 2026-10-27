@@ -326,14 +326,14 @@ data/reader.db     SQLite：订阅源配置、条目、已读/收藏状态、关
 anime-rss-reader/
 ├─ app.py              组装层：拼上下文、加载模块、挂路由与静态资源、窗口监督
 ├─ anime_rss/          应用包（内核 / 模块 / API 三层分开）
-│  ├─ kernel/          薄内核：http 原语、静态资源、服务适配、应用上下文
+│  ├─ kernel/          薄内核：http 原语、静态资源、服务适配、上下文、事件/任务/视图
 │  ├─ module.py        模块契约：Module / 加载顺序 / api_version 校验
 │  ├─ common.py        模块共用的视图工具（来源名、设置快照、生效回调）
 │  ├─ discovery.py     插件发现：entry_points + 本地 plugins/ 目录
 │  ├─ modules/         内置模块：feeds / reader / settings / schedule
-│  └─ api/             外壳：静态页、健康检查、/api/bootstrap 聚合
-├─ examples/plugins/   示例插件（复制到 plugins/ 即生效）
-├─ smoke.py            端到端冒烟测试，68 项检查，重构安全网
+│  └─ api/             外壳：静态页、健康检查、/api/bootstrap 聚合、/api/jobs
+├─ examples/plugins/   示例插件（连 static/ 复制到 plugins/ 即生效）
+├─ smoke.py            端到端冒烟测试，77 项检查，重构安全网
 ├─ tests/              模块契约与单元测试（python -m unittest discover -s tests）
 ├─ docs/ARCHITECTURE.md 模块化与双向插件契约设计
 ├─ feeds.py            聚合引擎：多站抓取、镜像轮换、通用 RSS 解析、导出
@@ -389,6 +389,9 @@ anime-rss-reader/
 | POST | `/api/settings/reset` | 恢复全部默认值 |
 | POST | `/api/maintenance` | `{action:"clean"}` 清理旧条目 / `{action:"vacuum"}` 压缩数据库 |
 | POST | `/api/open-window` | 让已有实例把界面窗口重新打开 |
+| GET | `/api/views` | 已注册的前端视图清单（插件入口用） |
+| GET | `/api/jobs` | 定时任务状态：跑了几次、下次何时、最后的错误 |
+| GET | `/plug/<模块 id>/<文件>` | 模块自带的前端资源（脚本 / 样式） |
 | GET | `/feed.xml`、`/feed/<id>.xml`、`/opml.xml` | RSS / OPML 导出 |
 
 条目列表的 `feed` 参数也接受 `watch:<关注id>`，取该关注命中的条目。
@@ -402,12 +405,12 @@ anime-rss-reader/
 **方式一：放进 `plugins/` 目录**（最简单）
 
 ```bash
-cp examples/plugins/hello.py plugins/
+mkdir -p plugins && cp -r examples/plugins/* plugins/
 python app.py
 ```
 
-启动日志会多一行 `模块 hello v0.1.0 示例插件`，设置页多一个「示例插件」分组，
-`GET /api/hello` 可用。
+启动日志会多一行 `模块 hello v0.2.0 示例插件`，侧栏多一个「示例插件」入口
+（界面来自插件自己的 `static/view.js`），设置页多一个分组，`GET /api/hello` 可用。
 
 **方式二：打成 Python 包**，在 `pyproject.toml` 里声明入口点：
 
@@ -422,14 +425,22 @@ hello = "my_hello_plugin:HelloModule"
 
 | 钩子 | 用途 |
 |---|---|
-| `setup(ctx)` | 挂路由（`/api/<id>/...`）、登记自己的设置项、起线程、建表 |
+| `setup(ctx)` | 挂路由（`/api/<id>/...`）、登记自己的设置项、登记定时任务、订阅事件 |
 | `bootstrap(ctx)` | 往首屏数据里加一段；抛异常会被跳过，不影响别的模块 |
 | `apply_settings(values)` | 设置保存后回调，让新配置立刻生效 |
-| `teardown()` | 退出前收尾 |
+| `teardown()` | 退出前收尾（任务表已由内核统一停） |
+| `views` / `assets` | 声明前端视图与静态目录，侧栏入口自动出现 |
 
-`ctx` 上有 `store` / `settings` / `refresher` / `schedule` / `router` / `assets` /
-`data_dir` / `port` / `module(id)`。完整示例见 `examples/plugins/hello.py`，
+`ctx` 上有 `store` / `settings` / `refresher` / `router` / `assets` /
+`bus`（事件）/ `jobs`（定时任务）/ `views`（前端视图）/ `data_dir` / `port` /
+`module(id)`。完整示例见 `examples/plugins/hello.py`，
 设计说明见 `docs/ARCHITECTURE.md`。
+
+不想自己起线程：`ctx.every(60, fn, name="hello.tick")` 交给内核统一调度，
+退出时自动收尾，`GET /api/jobs` 能看到跑了多少次、下次什么时候。
+
+想加个界面：声明一个视图，写一份 `view.js` 调 `ARR.registerView({id, mount})`，
+其余（侧栏入口、加载脚本、切走时卸载）都由主程序负责。
 
 ### 几句实话
 

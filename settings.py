@@ -292,6 +292,13 @@ class AutoRefresh(threading.Thread):
             except Exception:
                 pass
 
+    def tick(self):
+        """单步入口：交给 ctx.jobs 每 15 秒调一次，不再自己占线程。"""
+        try:
+            self._tick()
+        except Exception:
+            pass
+
     def _tick(self):
         now = time.time()
         s = self.settings.get()

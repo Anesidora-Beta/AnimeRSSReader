@@ -544,9 +544,10 @@ def prepare(items, params):
 class Refresher:
     """后台刷新任务，前端轮询 /api/refresh 拿进度。"""
 
-    def __init__(self, store, settings=None):
+    def __init__(self, store, settings=None, bus=None):
         self.store = store
         self.settings = settings          # 设置服务，用来读条数上限 / 保留天数
+        self.bus = bus                    # 可选：事件总线，抓完通知其它模块
         self.lock = threading.Lock()
         self.state = {
             "running": False, "feed": "", "done": 0, "total": 0,
@@ -575,7 +576,17 @@ class Refresher:
             })
         t = threading.Thread(target=self._run, args=(feed_ids,), daemon=True)
         t.start()
+        self._emit("refresh.started", {"feeds": list(feed_ids or [])})
         return True
+
+    def _emit(self, event, payload=None):
+        """有总线就通知一声；订阅方出错不影响抓取（总线内部已隔离）。"""
+        if self.bus is None:
+            return
+        try:
+            self.bus.emit(event, payload)
+        except Exception:
+            pass
 
     def refresh_sync(self, feed_ids=None):
         self._run(feed_ids)
@@ -628,6 +639,10 @@ class Refresher:
                         self.state["kept"] += len(items)
                         self.state["errors"] += errors
                         self.state["message"] = f"{feed['title']} +{added}"
+                    if added:
+                        self._emit("feed.updated", {
+                            "feed": feed["id"], "title": feed["title"],
+                            "added": added})
                 except Exception as e:
                     msg = f"{feed['title']}: {e.__class__.__name__} {e}"
                     self.store.feed_stat(feed["id"], False, msg)
@@ -688,6 +703,12 @@ class Refresher:
             with self.lock:
                 self.state["running"] = False
                 self.state["finished"] = time.time()
+                summary = {"added": self.state["added"],
+                           "kept": self.state["kept"],
+                           "errors": len(self.state["errors"]),
+                           "watchHits": self.state["watchHits"],
+                           "finished": int(self.state["finished"])}
+            self._emit("refresh.finished", summary)
 
 
 # ---------------------------------------------------------------- 导出

@@ -31,11 +31,14 @@ import settings as CFG
 import store as ST
 from anime_rss.api.core import CoreApi
 from anime_rss.kernel.assets import Assets, Mount
+from anime_rss.kernel.bus import Bus
 from anime_rss.kernel.context import Context, local_ip
 from anime_rss.kernel.http import Router
+from anime_rss.kernel.jobs import Jobs
 from anime_rss.kernel.server import Dispatcher, make_server
+from anime_rss.kernel.views import ViewRegistry
 from anime_rss.discovery import discover, merge_unique
-from anime_rss.module import ModuleError, load_modules
+from anime_rss.module import ModuleError, load_modules, unload_modules
 from anime_rss.modules import BUILTIN_MODULES
 
 APP_NAME = "动漫资源 · RSS 阅读器"
@@ -642,10 +645,19 @@ def main(argv=None):
         os.makedirs(DATA_DIR, exist_ok=True)
 
     # ---------------- 组装：部件 → 上下文 → 模块 → 路由 → 服务
+    quiet = os.environ.get("ANIME_RSS_QUIET") == "1"
+    say = None if quiet else print
+
     store = ST.Store(os.path.join(DATA_DIR, "reader.db"))
     settings = CFG.Settings(store)
     cfg = settings.get()
-    refresher = F.Refresher(store, settings)
+
+    # 内核的四个通用能力：事件、定时任务、前端视图、日志
+    bus = Bus(log=lambda m: None if quiet else print("  " + m))
+    jobs = Jobs(log=lambda m: None if quiet else print("  " + m))
+    views = ViewRegistry()
+
+    refresher = F.Refresher(store, settings, bus=bus)
     F.STATE_PATH = os.path.join(DATA_DIR, "hosts.json")   # 记住各镜像入口的可用状态
 
     port = pick_port(args.port)
@@ -654,12 +666,11 @@ def main(argv=None):
     ctx = Context(store=store, settings=settings, refresher=refresher,
                   assets=assets, router=router,
                   port=port, lan_mode=lan_mode, data_dir=DATA_DIR,
-                  static_dir=STATIC_DIR, app_name=APP_NAME, version=VERSION)
+                  static_dir=STATIC_DIR, app_name=APP_NAME, version=VERSION,
+                  bus=bus, jobs=jobs, views=views, log=say)
     CTX = ctx
 
     # 功能模块：每个模块自己建服务、挂 /api/<id>/ 路由
-    quiet = os.environ.get("ANIME_RSS_QUIET") == "1"
-    say = None if quiet else print
     modules = list(BUILTIN_MODULES)
 
     # 第三方插件：entry_points + 程序目录下的 plugins/
@@ -678,6 +689,7 @@ def main(argv=None):
     auto = CFG.AutoRefresh(settings, refresher, ctx.schedule, store)
     ctx.auto = auto
     CoreApi(ctx).register(router)
+    jobs.start()
 
     dispatcher = Dispatcher(router, assets, [Mount("/assets/", STATIC_DIR)])
     try:
@@ -711,21 +723,17 @@ def main(argv=None):
     # 首次运行或数据过期时自动抓一轮（设置里可以关掉「启动时抓取」）
     stale = (time.time() - (store.newest_ts() or 0)) > 1800
     if not args.no_fetch and stale and cfg.get("fetchOnStart", True):
-        def boot_fetch():
-            time.sleep(0.6)
-            refresher.start()
-        threading.Thread(target=boot_fetch, daemon=True).start()
+        jobs.later(0.6, refresher.start, name="boot-fetch")
 
     # 放送表也顺手预热一次：打开新番表时就不用干等
     sch_mod = ctx.module("schedule")
     if not args.no_fetch and sch_mod is not None:
-        def boot_schedule():
-            time.sleep(1.2)
-            sch_mod.warm_up()
-        threading.Thread(target=boot_schedule, daemon=True).start()
+        jobs.later(1.2, sch_mod.warm_up, name="boot-schedule")
 
     # 后台定时刷新：只靠服务端计时，关掉网页也会继续
-    auto.start()
+    jobs.every(auto.TICK, auto.tick, name="auto-refresh")
+    bus.emit("app.started", {"version": VERSION, "port": port,
+                             "modules": list(ctx.modules.ids()) if ctx.modules else []})
 
     if not args.no_browser and os.environ.get("ANIME_RSS_NO_BROWSER") != "1":
         if args.browser:
@@ -754,6 +762,9 @@ def main(argv=None):
     except KeyboardInterrupt:
         print("\n  已停止")
     finally:
+        bus.emit("app.stopping", {})
+        jobs.stop()                       # 停掉所有模块登记的后台任务
+        unload_modules(ctx.modules, log=say)
         try:
             srv.server_close()
         except Exception:

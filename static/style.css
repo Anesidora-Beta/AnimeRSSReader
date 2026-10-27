@@ -1076,6 +1076,38 @@ kbd {
 }
 .app.schedule-mode .schedule-pane { display: flex; }
 
+/* ============================== 插件视图 ============================== */
+
+/* 和放送表一样的处理：进插件视图时收起列表与阅读区 */
+.app.plugin-mode { grid-template-columns: var(--side-w) minmax(0, 1fr); }
+.app.plugin-mode .list-pane,
+.app.plugin-mode .reader-pane,
+.app.plugin-mode .schedule-pane { display: none; }
+
+.plugin-pane {
+  display: none;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  background: var(--bg);
+}
+.app.plugin-mode .plugin-pane { display: flex; }
+.plugin-host { flex: 1; min-width: 0; padding: 18px 20px 30px; }
+.plugin-host > h2:first-child { margin-top: 0; }
+
+/* 插件给的是文字图标（一个字符），别被 .nav-item span 的 flex:1 拉变形 */
+.nav-item .nav-ico {
+  width: 17px;
+  flex: 0 0 17px;
+  font-style: normal;
+  font-size: 14px;
+  line-height: 1;
+  text-align: center;
+  opacity: .85;
+}
+.nav-item.active .nav-ico { opacity: 1; }
+
 .sch-head {
   padding: 13px 18px 10px;
   border-bottom: 1px solid var(--line);
@@ -1442,6 +1474,8 @@ kbd {
 
 @media (max-width: 860px) {
   .app.schedule-mode { grid-template-columns: minmax(0, 1fr); }
+  .app.plugin-mode { grid-template-columns: minmax(0, 1fr); }
+  .plugin-host { padding: 12px 12px 24px; }
   .sch-head { padding: 10px 12px 8px; }
   .sch-body { padding: 10px 10px 84px; }
   .sch-title h2 { font-size: 15px; }

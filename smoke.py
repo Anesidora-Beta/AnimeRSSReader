@@ -159,6 +159,7 @@ def main():
         ck.eq("app.js 200", status, 200)
         ck.check("app.js 含放送表渲染", b"renderSchedule" in raw)
         ck.check("app.js 含设置逻辑", b"flushSettings" in raw)
+        ck.check("app.js 暴露视图注册契约", b"registerView" in raw and b"window.ARR" in raw)
 
         status, _, raw = request(base, "/assets/style.css")
         ck.eq("style.css 200", status, 200)
@@ -196,6 +197,26 @@ def main():
         status, _, raw = request(base, "/feed.xml")
         ck.eq("导出 RSS 200", status, 200)
         ck.check("导出 RSS 是 XML", raw.lstrip()[:5] in (b"<?xml", b"<rss>"))
+
+        # ---------- 内核扩展：前端视图 / 定时任务 ----------
+        print()
+        print("  内核扩展")
+        ck.check("bootstrap 带视图清单", isinstance((boot or {}).get("views"), list))
+        status, vw = jget(base, "/api/views")
+        ck.eq("views 200", status, 200)
+        ck.check("views 返回列表", isinstance((vw or {}).get("views"), list))
+
+        status, jb = jget(base, "/api/jobs")
+        ck.eq("jobs 200", status, 200)
+        job_names = [j.get("name") for j in (jb or {}).get("jobs") or []]
+        ck.check("自动刷新任务已登记", "auto-refresh" in job_names, job_names)
+        ck.check("任务表在运行", bool((jb or {}).get("running")))
+
+        status, _, _ = request(base, "/plug/nope/view.js")
+        ck.eq("未知插件资源 404", status, 404)
+        status, _, raw = request(base, "/plug/../app.py")
+        ck.check("插件资源拒绝穿越", status != 200 and b"VERSION" not in raw,
+                 "status=%s" % status)
 
         # ---------- 放送表 ----------
         print()

@@ -194,13 +194,14 @@
   function syncNav() {
     $$(".nav-item").forEach(function (el) {
       var nav = el.dataset.nav;
-      var active = nav === "schedule"
-        ? state.view === "schedule"
-        : (state.view !== "schedule" && state.feed === "all" && state.filter === nav);
+      var active;
+      if (nav === "schedule") active = state.view === "schedule";
+      else if (nav.indexOf("plugin:") === 0) active = state.view === nav;
+      else active = state.view === "items" && state.feed === "all" && state.filter === nav;
       el.classList.toggle("active", active);
     });
     $$(".feed-item").forEach(function (el) {
-      el.classList.toggle("active", state.view !== "schedule" && state.feed === el.dataset.feed);
+      el.classList.toggle("active", state.view === "items" && state.feed === el.dataset.feed);
     });
   }
 
@@ -949,6 +950,201 @@
     poll: null
   };
 
+  /* ============================================================
+     插件视图契约（给模块 / 第三方脚本用）
+
+     模块仓库里放一个 view.js，里面写：
+
+       ARR.registerView({
+         id: "hello",                        // 和后端 Module.views 的 id 一致
+         title: "示例插件",
+         icon: "◆",
+         mount: function (el, ctx) { ... },  // el 是内容容器
+         unmount: function (el) { ... }      // 可选，清理定时器
+       });
+
+     后端 bootstrap 会把视图清单发过来，这里按清单加载脚本，侧栏自动多一个入口。
+     ctx 是“只增不改”的对象：以后加字段不改名，老脚本继续能用。
+     ============================================================ */
+  var PLUG = { views: {}, manifest: [], mounted: null };
+  var pendingView = "";
+  var BUS = {
+    handlers: {},
+    on: function (event, fn) {
+      if (typeof fn !== "function") return null;
+      (BUS.handlers[event] = BUS.handlers[event] || []).push(fn);
+      return function () { BUS.off(event, fn); };
+    },
+    off: function (event, fn) {
+      var list = BUS.handlers[event] || [];
+      var i = list.indexOf(fn);
+      if (i >= 0) list.splice(i, 1);
+    },
+    emit: function (event, payload) {
+      var list = (BUS.handlers[event] || []).slice();
+      var wild = (BUS.handlers["*"] || []).slice();
+      list.concat(wild).forEach(function (fn) {
+        try {
+          wild.indexOf(fn) >= 0 ? fn(event, payload) : fn(payload);
+        } catch (e) {
+          if (window.console) console.warn("[ARR] 事件 " + event + " 的订阅者出错", e);
+        }
+      });
+    }
+  };
+
+  function manifestOf(id) {
+    var list = PLUG.manifest || [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].id === id) return list[i];
+    }
+    return null;
+  }
+
+  function addPluginNav(spec) {
+    var nav = $("nav.nav");
+    if (!nav) return;
+    var sel = '[data-nav="plugin:' + spec.id + '"]';
+    if (nav.querySelector(sel)) {
+      if (state.view === "plugin:" + spec.id) syncNav();
+      return;
+    }
+    var btn = document.createElement("button");
+    btn.className = "nav-item";
+    btn.dataset.nav = "plugin:" + spec.id;
+    btn.title = spec.description || spec.title || spec.id;
+    btn.innerHTML = '<i class="nav-ico">' + esc(spec.icon || "◆") + "</i>" +
+      "<span>" + esc(spec.title || spec.id) + "</span>" +
+      (spec.badge ? "<em>" + esc(spec.badge) + "</em>" : "");
+    btn.addEventListener("click", function () { switchView("plugin:" + spec.id); });
+    nav.appendChild(btn);
+  }
+
+  function mountPlugin(id) {
+    var host = $("#pluginHost");
+    if (!host) return;
+    var spec = PLUG.views[id];
+    if (!spec) {
+      host.innerHTML = '<div class="list-empty"><b>视图没加载出来</b>' +
+        "没有找到 id 为 " + esc(id) + " 的视图，插件脚本可能加载失败了。</div>";
+      return;
+    }
+    host.innerHTML = "";
+    PLUG.mounted = id;
+    var ctx = {
+      id: id,
+      api: { get: get, send: send },
+      toast: toast,
+      esc: esc,
+      on: BUS.on,
+      off: BUS.off,
+      emit: BUS.emit,
+      openItem: openItem,
+      theme: state.theme,
+      boot: state.boot,
+      baseUrl: (state.boot && state.boot.baseUrl) || ""
+    };
+    try {
+      spec.mount(host, ctx);
+    } catch (e) {
+      host.innerHTML = '<div class="list-empty"><b>视图渲染失败</b>' +
+        esc(e.message) + "</div>";
+    }
+  }
+
+  function unmountPlugin(view) {
+    if (!view || view.indexOf("plugin:") !== 0) return;
+    var spec = PLUG.views[view.slice(7)];
+    PLUG.mounted = null;
+    if (spec && typeof spec.unmount === "function") {
+      try { spec.unmount($("#pluginHost")); } catch (e) { /* 清理失败不影响切换 */ }
+    }
+    var host = $("#pluginHost");
+    if (host) host.innerHTML = "";
+  }
+
+  function openItem(id) {
+    if (!id) return;
+    if (state.view !== "items") switchView("items");
+    selectItem(id, { silent: true });
+  }
+
+  function applyView(name) {
+    if (!name) return false;
+    if (name === "schedule" || name === "items") { switchView(name); return true; }
+    if (name.indexOf("plugin:") === 0) {
+      if (PLUG.views[name.slice(7)]) { switchView(name); return true; }
+      pendingView = name;                 // 脚本还没加载完，等注册完再切
+      return false;
+    }
+    return false;
+  }
+
+  function loadPluginViews(list) {
+    PLUG.manifest = list || [];
+    PLUG.manifest.forEach(function (v) {
+      if (!v.id) return;
+      if (v.style) {
+        var link = document.createElement("link");
+        link.rel = "stylesheet";
+        link.href = v.style;
+        document.head.appendChild(link);
+      }
+      if (!v.script) return;               // 没脚本的视图只能由别的脚本注册
+      var s = document.createElement("script");
+      s.src = v.script;
+      s.async = false;
+      s.onerror = function () {
+        if (window.console) console.warn("[ARR] 视图脚本加载失败：" + v.script);
+      };
+      s.onload = function () {
+        if (!PLUG.views[v.id]) addPluginNav(v);   // 脚本没注册也留个入口（会提示未注册）
+        if (pendingView === "plugin:" + v.id) {
+          pendingView = "";
+          switchView("plugin:" + v.id);
+        }
+      };
+      document.head.appendChild(s);
+    });
+  }
+
+  var ARR = {
+    version: 1,
+    registerView: function (spec) {
+      if (!spec || !spec.id || typeof spec.mount !== "function") {
+        if (window.console) console.warn("[ARR] registerView 需要 id 和 mount()");
+        return false;
+      }
+      var meta = manifestOf(spec.id) || {};
+      var view = {
+        id: String(spec.id),
+        title: spec.title || meta.title || spec.id,
+        icon: spec.icon || meta.icon || "",
+        description: spec.description || meta.description || "",
+        order: typeof spec.order === "number" ? spec.order : (meta.order || 100),
+        mount: spec.mount,
+        unmount: spec.unmount || null
+      };
+      PLUG.views[view.id] = view;
+      addPluginNav(view);
+      if (pendingView === "plugin:" + view.id) {
+        pendingView = "";
+        switchView("plugin:" + view.id);
+      }
+      return true;
+    },
+    getView: function (id) { return PLUG.views[id] || null; },
+    views: function () { return Object.keys(PLUG.views); },
+    on: BUS.on,
+    off: BUS.off,
+    emit: BUS.emit,
+    toast: toast,
+    esc: esc,
+    api: { get: get, send: send },
+    openItem: openItem
+  };
+  window.ARR = ARR;
+
   function platMap() {
     var m = {};
     ((SCH.data && SCH.data.platforms) || []).forEach(function (p) { m[p.id] = p; });
@@ -964,12 +1160,20 @@
   }
 
   function switchView(v) {
+    var prev = state.view;
+    if (prev !== v) unmountPlugin(prev);      // 离开插件视图时让它自己收尾
     state.view = v;
+    var isPlugin = v.indexOf("plugin:") === 0;
     $("#app").classList.toggle("schedule-mode", v === "schedule");
+    $("#app").classList.toggle("plugin-mode", isPlugin);
     if (v === "schedule") {
       closeSidebar();
       syncNav();
       loadSchedule(false);
+    } else if (isPlugin) {
+      closeSidebar();
+      syncNav();
+      mountPlugin(v.slice(7));
     } else {
       syncNav();
     }
@@ -1281,6 +1485,7 @@
   function bind() {
     // 侧栏导航
     $$(".nav-item").forEach(function (el) {
+      if (el.dataset.nav.indexOf("plugin:") === 0) return;   // 插件入口自己绑
       el.addEventListener("click", function () {
         if (el.dataset.nav === "schedule") {
           switchView("schedule");
@@ -1745,8 +1950,12 @@
       setRefreshBar(b.refresh);
       loadItems(true);
 
-      // ?view=schedule 直接进新番放送表
-      if (qs.get("view") === "schedule") switchView("schedule");
+      // 视图清单：插件脚本加载完会自己调 ARR.registerView，侧栏自动出现入口
+      loadPluginViews(b.views || []);
+
+      // ?view=schedule / ?view=plugin:<id> 直接进对应视图
+      var deepView = qs.get("view");
+      if (deepView) applyView(deepView);
 
       // 支持 ?item=<id> 深链，方便从别处直接打开某一条
       var deep = qs.get("item");

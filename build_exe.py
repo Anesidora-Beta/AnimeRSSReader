@@ -101,6 +101,9 @@ def main():
         "--hidden-import", "anime_rss.kernel.assets",
         "--hidden-import", "anime_rss.kernel.server",
         "--hidden-import", "anime_rss.kernel.context",
+        "--hidden-import", "anime_rss.kernel.bus",
+        "--hidden-import", "anime_rss.kernel.jobs",
+        "--hidden-import", "anime_rss.kernel.views",
         "--hidden-import", "anime_rss.api",
         "--hidden-import", "anime_rss.api.core",
         # 模块化：契约 + 内置模块清单（清单是静态元组，打包也不会漏）
