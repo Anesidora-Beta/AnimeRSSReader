@@ -27,7 +27,6 @@ import urllib.request
 import webbrowser
 
 import feeds as F
-import schedule as SCH
 import settings as CFG
 import store as ST
 from anime_rss.api.core import CoreApi
@@ -35,6 +34,8 @@ from anime_rss.kernel.assets import Assets, Mount
 from anime_rss.kernel.context import Context, local_ip
 from anime_rss.kernel.http import Router
 from anime_rss.kernel.server import Dispatcher, make_server
+from anime_rss.module import ModuleError, load_modules
+from anime_rss.modules import BUILTIN_MODULES
 
 APP_NAME = "动漫资源 · RSS 阅读器"
 VERSION = "1.5.0"
@@ -637,25 +638,33 @@ def main(argv=None):
     if not os.path.isdir(DATA_DIR):
         os.makedirs(DATA_DIR, exist_ok=True)
 
-    # ---------------- 组装：部件 → 上下文 → 路由 → 服务
+    # ---------------- 组装：部件 → 上下文 → 模块 → 路由 → 服务
     store = ST.Store(os.path.join(DATA_DIR, "reader.db"))
     settings = CFG.Settings(store)
     cfg = settings.get()
     refresher = F.Refresher(store, settings)
-    schedule = SCH.Service(store,
-                           enabled=cfg.get("scheduleSources"),
-                           ttl=int(cfg.get("scheduleTtl") or 6) * 3600)
     F.STATE_PATH = os.path.join(DATA_DIR, "hosts.json")   # 记住各镜像入口的可用状态
-    auto = CFG.AutoRefresh(settings, refresher, schedule, store)
 
     port = pick_port(args.port)
     assets = Assets()
     router = Router()
     ctx = Context(store=store, settings=settings, refresher=refresher,
-                  schedule=schedule, auto=auto, assets=assets, router=router,
+                  assets=assets, router=router,
                   port=port, lan_mode=lan_mode, data_dir=DATA_DIR,
                   static_dir=STATIC_DIR, app_name=APP_NAME, version=VERSION)
     CTX = ctx
+
+    # 功能模块：每个模块自己建服务、挂 /api/<id>/ 路由
+    quiet = os.environ.get("ANIME_RSS_QUIET") == "1"
+    try:
+        load_modules(ctx, BUILTIN_MODULES, log=None if quiet else print)
+    except ModuleError as e:
+        print(f"模块加载失败：{e}")
+        store.close()
+        return 1
+
+    auto = CFG.AutoRefresh(settings, refresher, ctx.schedule, store)
+    ctx.auto = auto
     CoreApi(ctx).register(router)
 
     dispatcher = Dispatcher(router, assets, [Mount("/assets/", STATIC_DIR)])
@@ -696,10 +705,11 @@ def main(argv=None):
         threading.Thread(target=boot_fetch, daemon=True).start()
 
     # 放送表也顺手预热一次：打开新番表时就不用干等
-    if not args.no_fetch and schedule.should_auto_refresh():
+    sch_mod = ctx.module("schedule")
+    if not args.no_fetch and sch_mod is not None:
         def boot_schedule():
             time.sleep(1.2)
-            schedule.start()
+            sch_mod.warm_up()
         threading.Thread(target=boot_schedule, daemon=True).start()
 
     # 后台定时刷新：只靠服务端计时，关掉网页也会继续

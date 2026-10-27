@@ -12,6 +12,7 @@ SCHEMA 同时提供「有哪些设置、什么类型、怎么校验」和给前�
 新增一个设置项只需要在这里加一行。
 """
 
+import copy
 import json
 import threading
 import time
@@ -62,22 +63,6 @@ SCHEMA = [
         ],
     },
     {
-        "group": "schedule",
-        "title": "新番放送表",
-        "note": "关掉的来源不再抓取；已经抓到的数据下次刷新后消失。",
-        "items": [
-            {"k": "scheduleSources", "type": "checks", "label": "数据来源",
-             "default": ["bilibili", "bangumi", "anilist", "mal"],
-             "options": [_opt("bilibili", "哔哩哔哩"), _opt("bangumi", "Bangumi"),
-                         _opt("anilist", "AniList"), _opt("mal", "MAL / Jikan")]},
-            {"k": "scheduleTtl", "type": "number", "label": "缓存有效期",
-             "desc": "超过这个时间就在后台重新抓放送表", "default": 6,
-             "min": 1, "max": 48, "step": 1, "unit": "小时"},
-            {"k": "airingNotify", "type": "switch", "label": "开播提醒",
-             "desc": "有番即将开播时弹浏览器通知（需要授权）", "default": False},
-        ],
-    },
-    {
         "group": "store",
         "title": "存储与清理",
         "note": "收藏的条目和关注命中的条目不会被清掉。",
@@ -105,9 +90,15 @@ SCHEMA = [
 ITEM_BY_KEY = {it["k"]: it for g in SCHEMA for it in g["items"]}
 
 
-def defaults():
+def index_items(schema):
+    """把分组结构压平成 {key: item}；模块新增设置项时也要重新算一次。"""
+    return {it["k"]: it for g in schema for it in g["items"]}
+
+
+def defaults(items=None):
+    items = items if items is not None else ITEM_BY_KEY
     return {k: (list(it["default"]) if isinstance(it["default"], list)
-                else it["default"]) for k, it in ITEM_BY_KEY.items()}
+                else it["default"]) for k, it in items.items()}
 
 
 # ---------------------------------------------------------------- 校验
@@ -133,10 +124,10 @@ def _checks(v, it):
     return got or list(it["default"])
 
 
-def normalize(values):
+def normalize(values, items=None):
     """把前端/老数据里乱七八糟的值收敛成合法值"""
     out = {}
-    for k, it in ITEM_BY_KEY.items():
+    for k, it in (items if items is not None else ITEM_BY_KEY).items():
         v = values.get(k, it["default"])
         t = it["type"]
         if t == "switch":
@@ -155,28 +146,34 @@ def normalize(values):
 # ---------------------------------------------------------------- 服务
 
 class Settings:
-    """设置的读写。写入后立刻对内存里那份生效，同时落库。"""
+    """设置的读写。写入后立刻对内存里那份生效，同时落库。
+
+    schema 是**每实例一份**：模块可以在 setup() 里 define() 自己的分组，
+    既不污染全局，也保证一个进程里起两个应用时互不影响。
+    """
 
     def __init__(self, store):
         self.store = store
         self._lock = threading.RLock()
+        self._schema = copy.deepcopy(SCHEMA)
+        self._items = index_items(self._schema)
         self._cache = None
         self._load()
 
     # ---------------- 读
     def _load(self):
         raw = self.store.meta_prefix(PREFIX)
-        values = defaults()
+        values = defaults(self._items)
         for k, v in raw.items():
             key = k[len(PREFIX):]
-            if key not in ITEM_BY_KEY:
+            if key not in self._items:
                 continue
             try:
                 values[key] = json.loads(v)
             except (ValueError, TypeError):
                 pass
         with self._lock:
-            self._cache = normalize(values)
+            self._cache = normalize(values, self._items)
         return dict(self._cache)
 
     def get(self):
@@ -186,20 +183,68 @@ class Settings:
             return dict(self._cache)
 
     def schema(self):
-        return SCHEMA
+        return self._schema
+
+    # ---------------- 模块扩展
+    def define(self, group, after=None):
+        """登记一个设置分组（模块自带配置项的入口）。
+
+        group 结构与 SCHEMA 里的一致：{"group", "title", "note", "items"}。
+        同一个 group 重复登记时就地合并：同名的 key 以后登记的为准，
+        这样模块可以覆盖某个默认值而不必改中央 schema。
+        ``after`` 指定新分组插在哪个分组之后，用来控制设置页标签顺序。
+        """
+        if not isinstance(group, dict) or not group.get("group"):
+            raise ValueError("设置分组缺少 group 字段")
+        items = group.get("items") or []
+        if not items:
+            return self._schema
+
+        with self._lock:
+            target = next((g for g in self._schema
+                           if g["group"] == group["group"]), None)
+            if target is None:
+                target = {"group": group["group"], "title": group.get("title")
+                          or group["group"], "note": group.get("note", ""),
+                          "items": []}
+                pos = len(self._schema)
+                if after:
+                    idx = next((i for i, g in enumerate(self._schema)
+                                if g["group"] == after), None)
+                    if idx is not None:
+                        pos = idx + 1
+                self._schema.insert(pos, target)
+            elif group.get("title"):
+                target["title"] = group["title"]
+
+            for it in items:
+                if "k" not in it or "default" not in it:
+                    raise ValueError("设置项缺少 k 或 default：%r" % (it,))
+                same = next((x for x in target["items"] if x["k"] == it["k"]), None)
+                if same is None:
+                    target["items"].append(copy.deepcopy(it))
+                else:
+                    same.update(copy.deepcopy(it))
+
+            self._items = index_items(self._schema)
+            # 新键要立刻有默认值，否则 get() 拿不到、前端渲染成 undefined
+            merged = defaults(self._items)
+            merged.update(self._cache or {})
+            self._cache = normalize(merged, self._items)
+        return self._schema
 
     # ---------------- 写
     def save(self, patch):
         values = self.get()
         for k, v in (patch or {}).items():
-            if k in ITEM_BY_KEY:
+            if k in self._items:
                 values[k] = v
-        values = normalize(values)
+        values = normalize(values, self._items)
         self._persist(values)
         return self.get()
 
     def reset(self):
-        values = normalize(defaults())
+        values = normalize(defaults(self._items), self._items)
         self._persist(values)
         return self.get()
 

@@ -1586,10 +1586,27 @@ kbd {
   cursor: pointer;
 }
 .num input:focus,
+.set-ctrl .txt:focus,
 .set-ctrl select:focus {
   border-color: var(--accent-line);
   background: var(--panel);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* 文本型设置项（模块自带的字符串配置用） */
+.txt {
+  width: 190px;
+  max-width: 46vw;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--fg-1);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: .15s;
 }
 
 /* 多选（放送表来源） */

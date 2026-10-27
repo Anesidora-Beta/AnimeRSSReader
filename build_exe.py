@@ -103,6 +103,10 @@ def main():
         "--hidden-import", "anime_rss.kernel.context",
         "--hidden-import", "anime_rss.api",
         "--hidden-import", "anime_rss.api.core",
+        # 模块化：契约 + 内置模块清单（清单是静态元组，打包也不会漏）
+        "--hidden-import", "anime_rss.module",
+        "--hidden-import", "anime_rss.modules",
+        "--hidden-import", "anime_rss.modules.schedule",
         "--exclude-module", "tkinter",
         "--exclude-module", "unittest",
         "--exclude-module", "pydoc",

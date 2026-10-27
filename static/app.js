@@ -765,14 +765,17 @@
       ctrl = '<span class="num"><input type="number" data-k="' + esc(it.k) + '" data-t="number"' +
         ' min="' + it.min + '" max="' + it.max + '" step="' + (it.step || 1) + '"' +
         ' value="' + esc(v) + '"><em>' + esc(it.unit || "") + "</em></span>";
+    } else if (it.type === "text") {
+      ctrl = '<input class="txt" type="text" data-k="' + esc(it.k) + '" data-t="text"' +
+        ' value="' + esc(v == null ? "" : v) + '"' +
+        (it.placeholder ? ' placeholder="' + esc(it.placeholder) + '"' : "") + ">";
     } else if (it.type === "select") {
       ctrl = '<select data-k="' + esc(it.k) + '" data-t="select">' +
         (it.options || []).map(function (o) {
           return '<option value="' + esc(o.value) + '"' +
             (String(o.value) === String(v) ? " selected" : "") + ">" + esc(o.label) + "</option>";
         }).join("") + "</select>";
-    } else if (it.type === "checks") {
-      var arr = v || [];
+    } else if (it.type === "checks") {      var arr = v || [];
       ctrl = '<span class="chks">' + (it.options || []).map(function (o) {
         var on = arr.indexOf(o.value) >= 0;
         return '<button class="chk' + (on ? " on" : "") + '" data-k="' + esc(it.k) +
@@ -1529,6 +1532,8 @@
         queueSave(el.dataset.k, el.value);
       } else if (el.dataset.t === "number") {
         queueSave(el.dataset.k, parseInt(el.value, 10) || 0);
+      } else if (el.dataset.t === "text") {
+        queueSave(el.dataset.k, el.value);
       }
     });
 

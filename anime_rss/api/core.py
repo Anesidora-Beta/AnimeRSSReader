@@ -28,14 +28,17 @@ def source_names(ctx):
 
 
 def apply_settings(ctx, values=None):
-    """把设置同步到各个组件：放送表来源/缓存、关窗行为。"""
+    """把设置同步到各个组件：各模块自己的配置 + 关窗行为。"""
     vals = values or (ctx.settings.get() if ctx.settings else {})
-    if ctx.schedule is not None:
-        try:
-            ctx.schedule.configure(enabled=vals.get("scheduleSources"),
-                                   ttl=int(vals.get("scheduleTtl") or 6) * 3600)
-        except Exception:
-            pass
+    # 谁有 apply_settings 就通知谁，核心不需要知道具体有哪几个模块
+    if ctx.modules is not None:
+        for mod in ctx.modules:
+            hook = getattr(mod, "apply_settings", None)
+            if callable(hook):
+                try:
+                    hook(vals)
+                except Exception:
+                    pass
     if ctx.ui is not None:
         ctx.ui.on_close = vals.get("closeAction") or "ask"
     return vals
@@ -85,9 +88,6 @@ class CoreApi:
         r.get("/api/watches", self.watches)
         r.get("/api/mirrors", self.mirrors)
         r.get("/api/settings", self.settings_get)
-        r.get("/api/schedule", self.schedule_get)
-        r.get("/api/schedule/status", self.schedule_status)
-        r.get("/api/schedule/progress", self.schedule_status)
         r.get("/feed.xml", self.feed_all)
         r.get("/rss.xml", self.feed_all)
         r.get("/rss", self.feed_all)
@@ -96,7 +96,6 @@ class CoreApi:
         r.get("/feeds.opml", self.opml)
 
         r.post("/api/refresh", self.refresh_start)
-        r.post("/api/schedule/refresh", self.schedule_refresh)
         r.post("/api/settings", self.settings_save)
         r.post("/api/settings/reset", self.settings_reset)
         r.post("/api/maintenance", self.maintenance)
@@ -153,7 +152,7 @@ class CoreApi:
                     "ip": ctx.lan_url().split("//")[-1].split(":")[0]},
             "watches": self.watches_payload(),
             "mirrors": F.host_status(),
-            "schedule": self.schedule_brief(),
+            "schedule": self._schedule_brief(),
             "settings": ctx.settings.get() if ctx.settings else {},
             "baseUrl": ctx.base_url(req),
             "serverTime": int(time.time()),
@@ -205,23 +204,6 @@ class CoreApi:
             return Response.err("设置未初始化", 503)
         return Response.json(settings_payload(self.ctx))
 
-    def schedule_get(self, req):
-        sch = self.ctx.schedule
-        if sch is None:
-            return Response.err("放送表未初始化", 503)
-        flag = req.query.get("refresh")
-        if flag in ("1", "true", "yes"):
-            sch.start(force=True)
-        elif sch.should_auto_refresh():
-            sch.start()
-        return Response.json(sch.payload())
-
-    def schedule_status(self, req):
-        sch = self.ctx.schedule
-        if sch is None:
-            return Response.err("放送表未初始化", 503)
-        return Response.json({"ok": True, **sch.status()})
-
     def feed_all(self, req):
         return self.serve_feed(req, None)
 
@@ -242,14 +224,6 @@ class CoreApi:
         started = self.ctx.refresher.start(ids)
         return Response.json({"ok": True, "started": started,
                               **self.ctx.refresher.status()})
-
-    def schedule_refresh(self, req):
-        sch = self.ctx.schedule
-        if sch is None:
-            return Response.err("放送表未初始化", 503)
-        body = req.json_body()
-        started = sch.start(force=bool(body.get("force", True)))
-        return Response.json({"ok": True, "started": started, **sch.status()})
 
     def settings_save(self, req):
         ctx = self.ctx
@@ -402,16 +376,11 @@ class CoreApi:
         return Response(data, "application/rss+xml; charset=utf-8",
                         cache="public, max-age=120")
 
-    def schedule_brief(self):
-        """侧栏「新番表」上那个数字：今天要播几部"""
-        sch = self.ctx.schedule
-        if sch is None:
-            return {"total": 0, "today": 0, "updated": 0, "running": False}
-        d = sch.data()
-        return {"total": len(d.get("entries") or []),
-                "today": sch.today_count(),
-                "updated": d.get("updated") or 0,
-                "running": bool(sch.state["running"])}
+    def _schedule_brief(self):
+        """放送表摘要由模块提供；模块没装就返回空壳，侧栏显示 0 而不是报错。"""
+        mod = self.ctx.module("schedule")
+        return mod.brief() if mod is not None else {
+            "total": 0, "today": 0, "updated": 0, "running": False}
 
     def watches_payload(self):
         now = int(time.time())

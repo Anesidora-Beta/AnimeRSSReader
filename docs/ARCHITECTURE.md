@@ -1,7 +1,7 @@
 # 架构设计：薄内核 + 双向插件契约
 
 > 目标版本线：v1.5.0 → v2.0.0
-> 状态：设计已定稿，P0 / P1 完成，下一步 P2（拆模块）
+> 状态：设计已定稿，P0 / P1 完成，P2 进行中（schedule 已迁完）
 
 ## 1. 三条硬约束
 
@@ -153,7 +153,7 @@ window.ARR = {
 |---|---|---|
 | **P0** ✅ | `smoke.py` 端到端冒烟 + 打 tag `v1.5.0` | 51 项全通过 |
 | **P1** ✅ | 抽 `kernel/`：路由表化、全局变量改 `ctx` 注入、静态资源挂载 | 功能零变化，`smoke.py` 68/68；`app.py` 1295 → 744 行，只剩组装与桌面代码 |
-| **P2** | 按 `schedule` → `feeds`/`reader` → `settings` 拆模块 | 每拆一个跑一次冒烟，全绿才算完 |
+| **P2** 🔄 | 按 `schedule` → `feeds`/`reader` → `settings` 拆模块 | 每拆一个跑一次冒烟，全绿才算完；**`schedule` 已迁完**（模块契约 + 14 项单测，`smoke.py` 仍 68/68） |
 | **P3** | 开放插件发现（entry_points + plugins/ 目录）+ 写示例插件验证契约 | 示例插件只靠公开 API 就能跑通 bus + jobs + 视图 |
 | **P4** | `create_app()` / `export(host)` / `/api/v1` + 文档 | 用一个最小宿主程序（10 行内）成功加载并访问 |
 
@@ -175,3 +175,47 @@ window.ARR = {
 | 前端契约变更会悄悄破坏已有视图 | `ARR.registerView` 的 `ctx` 对象只增不改，废弃字段保留两个版本 |
 | 端口抽象过度导致代码变啰嗦 | 只抽 http / store / bus / clock / log 五个，别的直接 import；抽象层只允许有一层实现时先不抽 |
 | 拆模块期间新旧代码并存导致重复实现 | 一次只搬一个模块，搬完立刻删旧代码，不留“兼容分支” |
+
+## 10. 落地现状（代码与上面的差距）
+
+上面的目录是**目标形态**；下面是**今天仓库里真实存在的东西**，不写清楚容易照着上面的结构去找不存在的文件。
+
+| 目标 | 现状 | 说明 |
+|---|---|---|
+| `kernel/{router,assets,registry,config,jobs}.py` | `kernel/{http,assets,server,context}.py` + `module.py` | Router 放在 `http.py`；模块注册与版本校验在 `module.py`；`jobs` / `bus` 尚未抽象，仍用裸线程 |
+| `ports/` + `adapters/` | 无独立目录 | 目前只有 stdlib 一种实现，按“只有一个实现时先不抽”的原则暂缓；`Request`/`Response` 已经与服务器实现解耦，是将来抽端口的位置 |
+| `domain/` | 逻辑仍在 `schedule.py` / `feeds.py` 里 | 等模块搬完再拆纯函数层，避免一边搬一边改语义 |
+| `modules/{feeds,reader,schedule}` | `modules/schedule.py` | 只有 schedule 迁完，其余仍在 `api/core.py` |
+| 设置 schema 由模块自带 | ✅ `Settings.define(group, after=)` | 每个 `Settings` 实例一份 schema，模块登记、越界照旧夹紧、位置可控 |
+
+### 现在写一个模块长什么样
+
+```python
+from anime_rss.module import Module
+from anime_rss.kernel.http import Response
+
+
+class HelloModule(Module):
+    id = "hello"                 # 路由前缀 /api/hello/，表前缀 mod_hello_
+    name = "打招呼"
+    version = "1.0.0"
+    depends = ("schedule",)      # 需要别的模块时写在这里，由内核排顺序
+
+    def setup(self, ctx):
+        ctx.settings.define({    # 设置项自带，设置页自动多一个分组
+            "group": "hello",
+            "title": "打招呼",
+            "items": [{"k": "helloName", "type": "text",
+                       "label": "称呼", "default": "世界"}],
+        })
+        ctx.router.get("/api/hello", self.api_hello)
+
+    def apply_settings(self, values):   # 改设置时内核会回调，不用自己监听
+        self._name = values.get("helloName") or "世界"
+
+    def api_hello(self, req):
+        return Response.json({"ok": True, "text": "你好，%s" % getattr(self, "_name", "世界")})
+```
+
+丢进 `anime_rss/modules/__init__.py` 的 `BUILTIN_MODULES` 就生效 —— 不用改 `app.py`，也不用改 `core.py`。
+`ctx` 目前提供：`store` / `settings` / `refresher` / `schedule` / `auto` / `ui` / `assets` / `router` / `port` / `lan_mode` / `data_dir` / `static_dir` / `module(id)`。

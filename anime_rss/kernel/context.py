@@ -22,7 +22,8 @@ def local_ip():
 class Context:
     __slots__ = ("store", "settings", "refresher", "schedule", "auto", "ui",
                  "assets", "router", "port", "lan_mode", "data_dir",
-                 "static_dir", "app_name", "version", "started_at", "extra")
+                 "static_dir", "app_name", "version", "started_at", "extra",
+                 "modules")
 
     def __init__(self, store=None, settings=None, refresher=None, schedule=None,
                  auto=None, ui=None, assets=None, router=None, port=8899,
@@ -44,6 +45,12 @@ class Context:
         self.version = version
         self.started_at = started_at or time.time()
         self.extra = {}                       # 给后续模块留的扩展口袋
+        self.modules = None                   # 由 load_modules() 填入注册表
+
+    def module(self, module_id, default=None):
+        """按 id 取一个已加载模块；没有就返回 default，调用方不必判空。"""
+        reg = self.modules
+        return reg.get(module_id, default) if reg is not None else default
 
     @property
     def uptime(self):
