@@ -12,6 +12,7 @@
 退出码：0 全通过 / 1 有失败 / 2 起不来
 """
 import argparse
+import io
 import json
 import os
 import re
@@ -23,6 +24,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+import zipfile
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 APP = os.path.join(BASE, "app.py")
@@ -94,6 +96,24 @@ def jget(base, path, method="GET", body=None, timeout=10):
         return status, None
 
 
+def _post_bytes(base, path, blob, ctype="application/octet-stream", timeout=60):
+    """POST 原始字节（上传备份文件用），返回 (status, json)"""
+    req = urllib.request.Request(base + path, data=blob, method="POST",
+                                 headers={"Content-Type": ctype})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            raw = r.read()
+            status = r.status
+    except urllib.error.HTTPError as e:
+        raw, status = e.read(), e.code
+    except Exception:                                         # noqa: BLE001
+        return 0, None
+    try:
+        return status, json.loads(raw.decode("utf-8"))
+    except Exception:                                         # noqa: BLE001
+        return status, None
+
+
 def wait_ready(base, proc, timeout=30):
     end = time.time() + timeout
     while time.time() < end:
@@ -119,7 +139,9 @@ def main():
     version = read_version()
 
     env = dict(os.environ)
-    env["ANIME_RSS_DATA"] = tmpdir
+    # 用户数据单独一个文件夹，日志/备份放运行目录（和桌面版一致的分层）
+    env["ANIME_RSS_USERDATA"] = os.path.join(tmpdir, "userdata")
+    env["ANIME_RSS_DATA"] = os.path.join(tmpdir, "data")
     env["ANIME_RSS_QUIET"] = "1"
     env["PORT"] = str(port)
 
@@ -343,6 +365,48 @@ def main():
 
         status, m = jget(base, "/api/maintenance", "POST", {"action": "vacuum"})
         ck.eq("压缩 200", status, 200)
+
+        # 用户数据：独立文件夹 + zip 备份 / 恢复
+        print()
+        print("  用户数据")
+        status, info = jget(base, "/api/userdata")
+        ck.eq("用户数据信息 200", status, 200)
+        uroot = (info or {}).get("dir") or ""
+        ck.check("用户数据在单独的 userdata 目录",
+                 os.path.basename(uroot.rstrip("\\/")) == "userdata", uroot)
+        ck.check("用户数据里有 reader.db",
+                 os.path.isfile(os.path.join(uroot, "reader.db")))
+        ck.check("日志目录不在用户数据里",
+                 not os.path.isdir(os.path.join(uroot, "logs")))
+        ck.check("运行目录里没有 reader.db",
+                 not os.path.isfile(os.path.join(tmpdir, "data", "reader.db")))
+
+        status, headers, raw = request(base, "/api/userdata/export")
+        ck.eq("导出备份 200", status, 200)
+        ck.check("导出是 zip",
+                 "zip" in (headers.get("Content-Type") or ""),
+                 headers.get("Content-Type"))
+        ck.check("导出带下载文件名",
+                 "attachment" in (headers.get("Content-Disposition") or ""))
+        names = []
+        try:
+            with zipfile.ZipFile(io.BytesIO(raw)) as z:
+                names = z.namelist()
+        except Exception as e:                                # noqa: BLE001
+            ck.check("导出的 zip 能打开", False, str(e))
+        ck.check("备份里有 reader.db", "reader.db" in names, ",".join(names))
+
+        before = ((info or {}).get("stats") or {}).get("items")
+        status, data = _post_bytes(base, "/api/userdata/import", raw, "application/zip")
+        ck.eq("恢复备份 200", status, 200)
+        ck.check("恢复后条目数不变",
+                 ((data or {}).get("stats") or {}).get("items") == before,
+                 "%s -> %s" % (before, ((data or {}).get("stats") or {}).get("items")))
+        ck.check("恢复前自动备份了一份",
+                 os.path.isdir(((data or {}).get("backup") or "")))
+
+        status, _ = _post_bytes(base, "/api/userdata/import", b"not a zip", "application/zip")
+        ck.eq("乱文件恢复被拒绝 400", status, 400)
 
         status, _ = jget(base, "/api/does-not-exist")
         ck.eq("未知接口 404", status, 404)

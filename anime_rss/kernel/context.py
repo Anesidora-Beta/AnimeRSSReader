@@ -22,14 +22,15 @@ def local_ip():
 class Context:
     __slots__ = ("store", "settings", "refresher", "schedule", "auto", "ui",
                  "assets", "router", "port", "lan_mode", "data_dir",
-                 "static_dir", "app_name", "version", "started_at", "extra",
+                 "runtime_dir", "static_dir", "app_name", "version",
+                 "started_at", "extra",
                  "modules", "bus", "jobs", "views", "log")
 
     def __init__(self, store=None, settings=None, refresher=None, schedule=None,
                  auto=None, ui=None, assets=None, router=None, port=8899,
-                 lan_mode=False, data_dir="", static_dir="", app_name="",
-                 version="", started_at=None, bus=None, jobs=None, views=None,
-                 log=None):
+                 lan_mode=False, data_dir="", runtime_dir="", static_dir="",
+                 app_name="", version="", started_at=None, bus=None, jobs=None,
+                 views=None, log=None):
         self.store = store
         self.settings = settings
         self.refresher = refresher
@@ -41,6 +42,8 @@ class Context:
         self.port = port
         self.lan_mode = lan_mode
         self.data_dir = data_dir
+        # 日志 / 备份 / 浏览器配置；没单独指定就跟用户数据放一起
+        self.runtime_dir = runtime_dir or data_dir
         self.static_dir = static_dir
         self.app_name = app_name
         self.version = version

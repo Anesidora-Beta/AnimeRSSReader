@@ -9,9 +9,14 @@
 import hashlib
 import json
 import os
+import shutil
 import sqlite3
 import threading
 import time
+
+#: 库结构版本，写进 ``PRAGMA user_version``。
+#: 导入备份时靠它挡掉「来自更新版本程序」的数据。
+SCHEMA_VERSION = 1
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS feeds (
@@ -156,12 +161,39 @@ class Store:
         if d and not os.path.isdir(d):
             os.makedirs(d, exist_ok=True)
         self._lock = threading.RLock()
-        self._db = sqlite3.connect(path, check_same_thread=False, timeout=15)
+        self._connect()
+
+    def _connect(self):
+        """建连接 + 建表 + 补内置频道。``__init__`` 和整体换库都走这里。"""
+        self._db = sqlite3.connect(self.path, check_same_thread=False, timeout=15)
         self._db.row_factory = sqlite3.Row
         with self._lock:
             self._db.executescript(SCHEMA)
             self._db.execute("PRAGMA journal_mode=WAL")
+            self._db.execute("PRAGMA user_version=%d" % SCHEMA_VERSION)
             self._seed()
+
+    def reload_from(self, db_file):
+        """整体换成另一个库文件（导入用户数据用）。
+
+        整段都拿着 ``self._lock``：别的线程要么在换库前查完，要么等换完
+        用新库继续，不会撞上「连接已关闭」。调用方负责事先备份。
+        """
+        with self._lock:
+            try:
+                self._db.close()
+            except Exception:
+                pass
+            # WAL / SHM 是旧库的残留，留着会被 SQLite 当成新库的日志，必须删掉
+            for suffix in ("-wal", "-shm"):
+                p = self.path + suffix
+                if os.path.exists(p):
+                    try:
+                        os.remove(p)
+                    except OSError:
+                        pass
+            shutil.copyfile(db_file, self.path)
+            self._connect()
 
     # ------------------------------------------------------------ 初始化
     def _seed(self):

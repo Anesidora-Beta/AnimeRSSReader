@@ -31,9 +31,11 @@ from anime_rss.kernel.context import local_ip
 from anime_rss.kernel.server import make_server
 from anime_rss.module import ModuleError
 from anime_rss import runtime as RUNTIME
+from anime_rss import userdata as UD
+from store import SCHEMA_VERSION
 
 APP_NAME = "动漫资源 · RSS 阅读器"
-VERSION = "2.0.1"
+VERSION = "2.1.0"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 if getattr(sys, "frozen", False):          # PyInstaller 单文件模式
@@ -41,13 +43,20 @@ if getattr(sys, "frozen", False):          # PyInstaller 单文件模式
     _BASE = os.path.dirname(os.path.abspath(sys.executable))
 else:
     _BASE = HERE
-DATA_DIR = os.environ.get("ANIME_RSS_DATA") or os.path.join(_BASE, "data")
+
+# 用户数据单独放一个文件夹：订阅源、条目、已读、收藏、关注、设置全在里面，
+# 换电脑时把 userdata/ 整个拷过去就等于迁移。
+# 日志、浏览器配置、备份这些「本机专属」的东西放 data/，不掺进用户数据里。
+_LEGACY = os.environ.get("ANIME_RSS_DATA")          # 老变量：以前整个 data 目录都算数据
+DATA_DIR = (os.environ.get("ANIME_RSS_USERDATA") or _LEGACY
+            or os.path.join(_BASE, "userdata"))
+RUNTIME_DIR = _LEGACY or os.path.join(_BASE, "data")
 STATIC_DIR = os.path.join(HERE, "static")
 
 # 打包成无控制台程序后 stdout/stderr 是 None：先接上日志文件，
 # 后面所有 print / 访问日志才有地方去（也避免直接 write 时抛异常）。
 if getattr(sys, "frozen", False):
-    LOG_PATH = RUNTIME.attach_streams(DATA_DIR)
+    LOG_PATH = RUNTIME.attach_streams(RUNTIME_DIR)
 else:
     LOG_PATH = None
 
@@ -369,7 +378,7 @@ def open_app_window(url, size="1240,880"):
     exe = find_chromium()
     if not exe:
         return None
-    profile = os.path.join(DATA_DIR, ".window")
+    profile = os.path.join(RUNTIME_DIR, ".window")
     try:
         os.makedirs(profile, exist_ok=True)
     except OSError:
@@ -524,6 +533,85 @@ class WindowSupervisor(threading.Thread):
             pass
 
 
+# ---------------------------------------------------------------- 用户数据
+
+def backup_dir():
+    """导入前的自动备份放在运行目录，不混进 userdata/"""
+    return os.path.join(RUNTIME_DIR, "backups")
+
+
+def migrate_user_data():
+    """老版本把用户数据放在 data/：挪到 userdata/ 去，只挪一次。
+
+    浏览器配置和日志留在 data/，所以挪完 data/ 里剩下的都是「本机专属」，
+    可以放心删掉或不管它。
+    """
+    moved = UD.migrate_legacy(RUNTIME_DIR, DATA_DIR)
+    if moved:
+        print("\n  用户数据已搬迁到 %s（%s）" % (DATA_DIR, "、".join(moved)))
+    return moved
+
+
+def export_userdata(path=""):
+    """把用户数据打包成 zip（``--export-userdata`` 用；目录就以默认名放进去）"""
+    dest = path or os.path.join(RUNTIME_DIR, "exports")
+    if not dest.lower().endswith(".zip"):
+        try:
+            os.makedirs(dest, exist_ok=True)
+        except OSError as e:
+            print("  导出失败：建不了目录 %s（%s）" % (dest, e))
+            return 1
+    try:
+        out, size = UD.export_to(dest, UD.db_path(DATA_DIR),
+                                 app=APP_NAME, version=VERSION)
+    except UD.UserDataError as e:
+        print("  导出失败：%s" % e)
+        return 1
+    except OSError as e:
+        print("  导出失败：%s" % e)
+        return 1
+    print("  已导出   %s（%s）" % (out, UD.human_size(size)))
+    print("          把这个 zip 拷到新环境，用 --import-userdata 或者在设置里「从备份恢复」")
+    return 0
+
+
+def import_userdata(path):
+    """从备份恢复用户数据：启动前直接换库，不涉及运行中的连接。"""
+    try:
+        staged, _manifest, stats = UD.unpack(path, max_version=SCHEMA_VERSION)
+    except UD.UserDataError as e:
+        print("  导入失败：%s" % e)
+        return 1
+    except OSError as e:
+        print("  导入失败：读不了 %s（%s）" % (path, e))
+        return 1
+    backup = ""
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        backup = UD.backup(DATA_DIR, backup_dir())      # 有旧数据就先留一份
+        target = UD.db_path(DATA_DIR)
+        for suffix in ("-wal", "-shm"):
+            stale = target + suffix
+            if os.path.exists(stale):
+                try:
+                    os.remove(stale)
+                except OSError:
+                    pass
+        shutil.copyfile(staged, target)
+        UD.write_manifest(DATA_DIR, app=APP_NAME, version=VERSION)
+    except OSError as e:
+        print("  导入失败：写不进 %s（%s）" % (DATA_DIR, e))
+        return 1
+    finally:
+        UD.cleanup(staged)
+    print("  已恢复   %s" % UD.db_path(DATA_DIR))
+    print("  里面有   %d 条 · %d 个源 · %d 个关注 · %d 条收藏"
+          % (stats["items"], stats["feeds"], stats["watches"], stats["starred"]))
+    if backup:
+        print("  旧数据备份到 %s" % backup)
+    return 0
+
+
 # ---------------------------------------------------------------- HTTP
 
 # ---------------------------------------------------------------- 启动
@@ -614,7 +702,37 @@ def main(argv=None):
     ap.add_argument("--no-fetch", action="store_true", help="启动后不自动抓取")
     ap.add_argument("--no-third-party", action="store_true",
                     help="不加载第三方插件（plugins/ 目录与 entry_points），排障时用")
+    ap.add_argument("--user-data", metavar="DIR",
+                    help="用户数据文件夹（默认：程序目录/userdata）")
+    ap.add_argument("--export-userdata", metavar="PATH", nargs="?", const="",
+                    help="把用户数据打包成 zip 后退出：PATH 给目录或 .zip，省略则放 data/exports")
+    ap.add_argument("--import-userdata", metavar="PATH",
+                    help="启动前从备份（zip / userdata 文件夹）恢复用户数据")
+    ap.add_argument("backup", nargs="?", metavar="备份.zip",
+                    help="把备份 zip 拖到程序上即可：等同 --import-userdata")
     args = ap.parse_args(argv)
+
+    # 把备份 zip 直接拖到 exe 上也能用：第一个参数就是个 zip/库文件时按导入处理
+    if (not args.import_userdata and not args.export_userdata
+            and args.backup and os.path.isfile(args.backup)
+            and args.backup.lower().endswith((".zip", ".db"))):
+        args.import_userdata = args.backup
+
+    # 数据目录要在动库之前定下来：--user-data > 环境变量 > 程序目录/userdata
+    if args.user_data:
+        global DATA_DIR
+        DATA_DIR = os.path.abspath(os.path.expanduser(args.user_data))
+
+    # 老版本的数据在 data/ 里，先搬过来再往下走（只搬一次）
+    migrate_user_data()
+
+    # 导入：恢复完接着正常启动（新环境第一次跑就是这么用的）
+    if args.import_userdata:
+        rc = import_userdata(args.import_userdata)
+        if rc:
+            return rc
+    if args.export_userdata is not None:
+        return export_userdata(args.export_userdata)
 
     if args.host:
         host = "0.0.0.0" if args.host.strip().lower() in (
@@ -653,7 +771,8 @@ def main(argv=None):
 
     try:
         app = create_app(
-            data_dir=DATA_DIR, static_dir=STATIC_DIR, base_dir=_BASE,
+            data_dir=DATA_DIR, runtime_dir=RUNTIME_DIR,
+            static_dir=STATIC_DIR, base_dir=_BASE,
             port=port, lan_mode=lan_mode, app_name=APP_NAME, version=VERSION,
             log=say, no_third_party=args.no_third_party,
             fetch_on_start=not args.no_fetch,
@@ -683,7 +802,9 @@ def main(argv=None):
     if lan_mode:
         print(f"  局域网     http://{local_ip()}:{port}/   （手机 / 平板同一 WiFi 可用）")
     print(f"  订阅导出   {url}feed.xml")
-    print(f"  数据文件   {ctx.db_path}")
+    print(f"  用户数据   {ctx.data_dir}")
+    if os.path.abspath(ctx.runtime_dir) != os.path.abspath(ctx.data_dir):
+        print(f"  日志备份   {ctx.runtime_dir}")
     if args.no_browser or os.environ.get("ANIME_RSS_NO_BROWSER") == "1":
         print("  界面        已关闭自动打开，请手动访问上面的地址")
     elif args.browser:

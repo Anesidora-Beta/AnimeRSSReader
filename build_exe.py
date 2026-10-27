@@ -27,7 +27,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 NAME = "AnimeRSSReader"
-VERSION = "2.0.1"
+VERSION = "2.1.0"
 SEP = ";" if os.name == "nt" else ":"
 
 VERSION_TEMPLATE = """# UTF-8
@@ -125,6 +125,8 @@ def main():
         "--hidden-import", "anime_rss.modules.reader",
         "--hidden-import", "anime_rss.modules.settings",
         "--hidden-import", "anime_rss.modules.schedule",
+        "--hidden-import", "anime_rss.userdata",
+        "--hidden-import", "anime_rss.modules.userdata",
         "--exclude-module", "tkinter",
         "--exclude-module", "unittest",
         "--exclude-module", "pydoc",

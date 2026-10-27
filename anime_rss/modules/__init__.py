@@ -13,12 +13,14 @@ from .feeds import FeedsModule
 from .reader import ReaderModule
 from .schedule import ScheduleModule
 from .settings import SettingsModule
+from .userdata import UserDataModule
 
 BUILTIN_MODULES = (
     FeedsModule,
     ReaderModule,
     SettingsModule,
     ScheduleModule,
+    UserDataModule,
 )
 
 __all__ = [
@@ -27,4 +29,5 @@ __all__ = [
     "ReaderModule",
     "ScheduleModule",
     "SettingsModule",
+    "UserDataModule",
 ]

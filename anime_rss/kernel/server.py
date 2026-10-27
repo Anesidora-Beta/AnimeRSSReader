@@ -74,7 +74,7 @@ class Handler(BaseHTTPRequestHandler):
         use_gzip = (
             "gzip" in (self.headers.get("Accept-Encoding") or "")
             and len(body) > 1400
-            and not resp.ctype.startswith(("image/", "font/"))
+            and not resp.ctype.startswith(("image/", "font/", "application/zip"))
         )
         if use_gzip:
             body = gzip.compress(body, 6)

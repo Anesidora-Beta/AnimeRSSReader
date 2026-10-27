@@ -1,9 +1,15 @@
+# 用户数据：真正属于使用者的东西，不进库（换机时整个文件夹拷走即可）
+/userdata/
+
 # 运行时数据
 data/*.db
 data/*.db-wal
 data/*.db-shm
 data/hosts.json
 data/.window/
+data/backups/
+data/exports/
+data/logs/
 
 # 打包产物
 build/

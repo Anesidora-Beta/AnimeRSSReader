@@ -182,6 +182,12 @@ class Settings:
                 return self._load()
             return dict(self._cache)
 
+    def reload(self):
+        """丢掉内存缓存，重新从库里读（导入用户数据之后调用）"""
+        with self._lock:
+            self._cache = None
+        return self._load()
+
     def schema(self):
         return self._schema
 

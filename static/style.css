@@ -1693,6 +1693,8 @@ kbd {
 .kv span { color: var(--fg-3); flex: 0 0 auto; }
 .kv b { font-weight: 500; text-align: right; word-break: break-all; color: var(--fg-2); }
 .set-actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+/* 关于页里分块：用户数据 / 数据库维护 各自成段，中间一条淡分隔线 */
+.set-block { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line-soft); }
 
 /* ---------- 字号 / 密度（设置里可调） ---------- */
 :root[data-fs="s"] { --art-fs: 13px; --row-fs: 12.5px; }

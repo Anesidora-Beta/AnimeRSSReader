@@ -820,20 +820,30 @@
       ["版本", i.version || "—"],
       ["访问地址", "http://127.0.0.1:" + (i.port || "") + "/"],
       ["局域网", i.lanUrl || (i.lan ? "已开启" : "未开启（--lan 可开启）")],
-      ["数据文件", i.dbPath || "—"],
+      ["用户数据", i.dataDir || "—"],
       ["条目 / 订阅源", (st.items || 0) + " 条 · " + (st.feeds || 0) + " 个源"],
       ["数据库大小", fmtBytes(st.dbBytes || 0)],
       ["已运行", Math.floor((i.uptime || 0) / 60) + " 分钟"]
     ];
     return '<section class="set-pane">' +
-      '<p class="set-note">清理只删除超过保留天数的未收藏条目，收藏和关注命中都会保留。</p>' +
       '<div class="kv">' + rows.map(function (r) {
         return '<div><span>' + esc(r[0]) + "</span><b>" + esc(r[1]) + "</b></div>";
       }).join("") + "</div>" +
+      '<p class="set-note">已读、收藏、关注、订阅、设置全在上面这个文件夹里。' +
+      "换电脑时把整个文件夹拷过去，或者在新环境点「从备份恢复」选这里导出的 zip；" +
+      "恢复前会先把当前数据备份到 data/backups。</p>" +
+      '<div class="set-actions">' +
+      '<button class="ghost-btn" id="btnUdExport">导出用户数据</button>' +
+      '<button class="ghost-btn" id="btnUdImport">从备份恢复…</button>' +
+      '<button class="ghost-btn" id="btnUdReveal">打开文件夹</button>' +
+      "</div>" +
+      '<input type="file" id="udFile" accept=".zip,application/zip" hidden>' +
+      '<div class="set-block">' +
+      '<p class="set-note">清理只删除超过保留天数的未收藏条目，收藏和关注命中都会保留。</p>' +
       '<div class="set-actions">' +
       '<button class="ghost-btn" id="btnClean">立即清理旧条目</button>' +
       '<button class="ghost-btn" id="btnVacuum">压缩数据库</button>' +
-      "</div></section>";
+      "</div></div></section>";
   }
 
   function fmtBytes(n) {
@@ -909,6 +919,62 @@
         } catch (e) { /* 通知被系统拦了就算了 */ }
       }
     });
+  }
+
+  /* ------------------------------------------------------------ 用户数据 */
+
+  function exportUserData() {
+    toast("正在打包用户数据…");
+    fetch("/api/userdata/export").then(function (r) {
+      var ct = r.headers.get("Content-Type") || "";
+      if (ct.indexOf("json") >= 0) {
+        return r.json().then(function (d) { toast((d && d.error) || "导出失败"); });
+      }
+      var name = "AnimeRSS-userdata.zip";
+      var m = /filename="([^"]+)"/.exec(r.headers.get("Content-Disposition") || "");
+      if (m) name = m[1];
+      return r.blob().then(function (blob) {
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement("a");
+        a.href = url;
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
+        toast("已导出 " + name + "（" + fmtBytes(blob.size) + "）");
+      });
+    }).catch(function () { toast("导出失败，检查服务是否在运行"); });
+  }
+
+  function pickUserDataFile() {
+    var f = $("#udFile");
+    if (f) f.click();
+  }
+
+  function importUserData(file) {
+    if (!file) return;
+    var ok = confirm("用「" + file.name + "」覆盖当前数据？\n\n" +
+      "已读 / 收藏 / 关注 / 订阅 / 设置都会换成备份里的那份。\n" +
+      "恢复前会先把现在的数据自动备份一份。");
+    if (!ok) return;
+    toast("正在恢复…");
+    fetch("/api/userdata/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/zip" },
+      body: file
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (!d || !d.ok) { toast((d && d.error) || "恢复失败"); return; }
+      var st = d.stats || {};
+      toast("已恢复 " + (st.items || 0) + " 条 · " + (st.watches || 0) + " 个关注，正在刷新…");
+      setTimeout(function () { location.reload(); }, 900);
+    }).catch(function () { toast("恢复失败，检查服务是否在运行"); });
+  }
+
+  function revealUserData() {
+    send("POST", "/api/userdata/reveal", {}).then(function (r) {
+      if (!r || !r.ok) toast((r && r.error) || "打不开文件夹");
+    }).catch(function () { toast("打不开文件夹"); });
   }
 
   function runMaintenance(action) {
@@ -1727,11 +1793,29 @@
       }
       if (e.target.closest("#btnVacuum")) {
         runMaintenance("vacuum");
+        return;
+      }
+      if (e.target.closest("#btnUdExport")) {
+        exportUserData();
+        return;
+      }
+      if (e.target.closest("#btnUdImport")) {
+        pickUserDataFile();
+        return;
+      }
+      if (e.target.closest("#btnUdReveal")) {
+        revealUserData();
       }
     });
 
     $("#setPanes").addEventListener("change", function (e) {
       var el = e.target;
+      if (el.id === "udFile") {
+        var picked = el.files && el.files[0];
+        el.value = "";
+        importUserData(picked);
+        return;
+      }
       if (!el.dataset || !el.dataset.k) return;
       if (el.dataset.t === "select") {
         queueSave(el.dataset.k, el.value);

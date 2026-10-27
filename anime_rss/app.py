@@ -50,16 +50,18 @@ _REASONS = {
 class AppConfig:
     """一次运行的全部参数。全是可选，默认值就是「本机跑起来」。"""
 
-    __slots__ = ("data_dir", "static_dir", "base_dir", "port", "host", "lan_mode",
-                 "app_name", "version", "log", "no_third_party", "fetch_on_start",
-                 "auto_refresh", "modules", "plugin_dirs", "api_v1")
+    __slots__ = ("data_dir", "runtime_dir", "static_dir", "base_dir", "port",
+                 "host", "lan_mode", "app_name", "version", "log",
+                 "no_third_party", "fetch_on_start", "auto_refresh", "modules",
+                 "plugin_dirs", "api_v1")
 
-    def __init__(self, data_dir=None, static_dir=None, base_dir="", port=8899,
-                 host="127.0.0.1", lan_mode=False, app_name=DEFAULT_APP_NAME,
-                 version=__version__, log=None, no_third_party=False,
-                 fetch_on_start=False, auto_refresh=True, modules=None,
-                 plugin_dirs=None, api_v1=True):
+    def __init__(self, data_dir=None, runtime_dir=None, static_dir=None,
+                 base_dir="", port=8899, host="127.0.0.1", lan_mode=False,
+                 app_name=DEFAULT_APP_NAME, version=__version__, log=None,
+                 no_third_party=False, fetch_on_start=False, auto_refresh=True,
+                 modules=None, plugin_dirs=None, api_v1=True):
         self.data_dir = data_dir
+        self.runtime_dir = runtime_dir
         self.static_dir = static_dir
         self.base_dir = base_dir or ""
         self.port = int(port)
@@ -83,6 +85,16 @@ class AppConfig:
         if env:
             return os.path.abspath(env)
         return os.path.join(os.path.abspath(self.base_dir or os.getcwd()), "data")
+
+    def resolve_runtime_dir(self):
+        """日志、备份、浏览器配置这些「本机专属」的东西放这。
+
+        默认跟用户数据放一起（嵌入场景大多这样最简单）；
+        桌面版会把它们分到 data/，好让 userdata/ 能被整个拷走。
+        """
+        if self.runtime_dir:
+            return os.path.abspath(self.runtime_dir)
+        return self.resolve_data_dir()
 
     def resolve_static_dir(self):
         if self.static_dir:
@@ -128,8 +140,10 @@ class App:
         say = c.log or (lambda msg: None)
 
         data_dir = c.resolve_data_dir()
+        runtime_dir = c.resolve_runtime_dir()
         static_dir = c.resolve_static_dir()
         os.makedirs(data_dir, exist_ok=True)
+        os.makedirs(runtime_dir, exist_ok=True)
 
         self.store = ST.Store(os.path.join(data_dir, "reader.db"))
         try:
@@ -145,7 +159,8 @@ class App:
             self.ctx = Context(
                 store=self.store, settings=self.settings, refresher=self.refresher,
                 assets=self.assets, router=self.router, port=c.port,
-                lan_mode=c.lan_mode, data_dir=data_dir, static_dir=static_dir,
+                lan_mode=c.lan_mode, data_dir=data_dir,
+                runtime_dir=runtime_dir, static_dir=static_dir,
                 app_name=c.app_name, version=c.version,
                 bus=self.bus, jobs=self.jobs, views=self.views, log=c.log)
 

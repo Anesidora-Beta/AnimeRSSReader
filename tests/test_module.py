@@ -54,7 +54,7 @@ class ModuleLoadingTest(_Tmp, unittest.TestCase):
     def test_all_builtin_modules_load(self):
         reg = load_modules(self.ctx(), BUILTIN_MODULES)
         self.assertEqual(sorted(reg.ids()),
-                         ["feeds", "reader", "schedule", "settings"])
+                         ["feeds", "reader", "schedule", "settings", "userdata"])
 
     def test_route_table_is_stable(self):
         """模块化前后对外路由必须一模一样，少一条就是破坏兼容。"""
@@ -71,6 +71,8 @@ class ModuleLoadingTest(_Tmp, unittest.TestCase):
             "GET /api/schedule/progress",
             "GET /api/schedule/status",
             "GET /api/settings",
+            "GET /api/userdata",
+            "GET /api/userdata/export",
             "GET /api/watches",
             "GET /feed.xml",
             "GET /feed/{fid}",
@@ -89,6 +91,8 @@ class ModuleLoadingTest(_Tmp, unittest.TestCase):
             "POST /api/settings",
             "POST /api/settings/reset",
             "POST /api/star",
+            "POST /api/userdata/import",
+            "POST /api/userdata/reveal",
             "POST /api/watches",
             "POST /api/watches/{wid}/scan",
         }

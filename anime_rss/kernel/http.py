@@ -25,6 +25,11 @@ class Request:
         self._body = body or b""
         self.params = {}                      # 由 Router 在匹配后填入
 
+    @property
+    def body(self):
+        """原始请求体（上传备份文件时是文件字节，不是 JSON）"""
+        return self._body
+
     def q(self, name, default=""):
         v = self.query.get(name)
         return default if v is None or v == "" else v
