@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "arrkit"
+version = "0.1.0"
+description = "零依赖的模块化微内核：路由 / 事件 / 定时任务 / 前端视图 / 插件契约"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "AnimeRSSReader" }]
+keywords = ["microframework", "modular", "plugin", "zero-dependency", "wsgi"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Framework :: WSGI",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/Anesidora-Beta/AnimeRSSReader"
+
+[tool.setuptools]
+packages = ["arrkit", "arrkit.ports", "arrkit.adapters"]
+
+[tool.setuptools.package-data]
+arrkit = ["py.typed"]

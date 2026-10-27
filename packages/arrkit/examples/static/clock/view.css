@@ -1,0 +1,20 @@
+.clock-card {
+  max-width: 460px; padding: 28px 26px;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.clock-time {
+  font: 600 46px/1.1 ui-monospace, "SF Mono", Consolas, monospace;
+  letter-spacing: 1px; color: var(--accent);
+}
+.clock-sub { color: var(--dim); font-size: 12px; margin-top: 6px; }
+.clock-stats { display: flex; gap: 26px; margin: 22px 0 18px; }
+.clock-stats div { display: flex; flex-direction: column; gap: 2px; }
+.clock-stats dt { color: var(--dim); font-size: 12px; }
+.clock-stats dd { margin: 0; font-size: 18px; font-weight: 600; }
+.clock-btn {
+  padding: 8px 14px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--accent-soft);
+  color: var(--accent); font: inherit;
+}
+.clock-btn:hover { border-color: var(--accent); }

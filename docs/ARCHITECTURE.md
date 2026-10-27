@@ -233,7 +233,7 @@ app.stop()                                     # 停任务表、收尾模块、�
 | 目标 | 现状 | 说明 |
 |---|---|---|
 | `kernel/{router,assets,registry,config,jobs}.py` | `kernel/{http,assets,server,context,bus,jobs,views}.py` + `module.py` + `common.py` | Router 放在 `http.py`；模块注册与版本校验在 `module.py`；`bus` / `jobs` / `views` 已补齐；`config` 由 `Settings.define` 代替，不做独立文件 |
-| `ports/` + `adapters/` | 无独立目录 | 目前只有 stdlib 一种实现，按“只有一个实现时先不抽”的原则暂缓；`Request`/`Response` 已经与服务器实现解耦，是将来抽端口的位置 |
+| `ports/` + `adapters/` | ✅ 在独立包 `packages/arrkit/arrkit/{ports,adapters}/` | 主版本**没有**改用它，仍是 `kernel/` 里那份；独立包把 `TransportPort` / `AssetPort` / `ClockPort` 抽成接口，stdlib 实现放 `adapters/`，可单独 `pip install -e packages/arrkit` |
 | `domain/` | 逻辑仍在 `schedule.py` / `feeds.py` 里 | 等模块搬完再拆纯函数层，避免一边搬一边改语义 |
 | `modules/{feeds,reader,schedule}` | `modules/{feeds,reader,settings,schedule}.py` | 四个模块全部迁完；`api/core.py` 只剩静态页、健康检查与 bootstrap 聚合 |
 | 设置 schema 由模块自带 | ✅ `Settings.define(group, after=)` | 每个 `Settings` 实例一份 schema，模块登记、越界照旧夹紧、位置可控 |
@@ -242,6 +242,30 @@ app.stop()                                     # 停任务表、收尾模块、�
 | 前端视图注册 | ✅ `kernel/views.py` + `ARR.registerView` | 模块声明 `views`/`assets`，脚本从 `/plug/<id>/` 加载；侧栏入口自动生成，坏视图只跳过自己 |
 | `create_app()` / `export(host)` / `/api/v1` | ✅ `anime_rss/app.py` + `anime_rss/host.py` | 桌面与嵌入共用一份组装；`App.handle()` 直接返回 `Response`，`App.wsgi` 是标准 WSGI；`/api/v1` 是同一批 handler 的别名 |
 | `plugin_api.py` / `cli.py` | 未单独建文件 | 契约落在 `module.py`（`Module` / `API_VERSION`），命令行入口仍是根目录 `app.py` |
+
+### 独立底座：`packages/arrkit/`
+
+上面第 3 节画的分层（`modules → kernel → ports ← adapters`）在仓库里有两份实现，
+**刻意不合并**：
+
+| | 主版本 `anime_rss` | 独立包 `arrkit` |
+|---|---|---|
+| 位置 | `anime_rss/{kernel,module,discovery,app,host}.py` | `packages/arrkit/arrkit/` |
+| 依赖 | 业务（RSS / 放送表 / SQLite） | 零依赖 |
+| 管理接口 | `/api/*`（与业务同前缀） | `/_kit/*`（不占业务路径） |
+| 设置存储 | SQLite（与业务同库） | 独立 JSON 文件 |
+| 测试 | `tests/` 92 项 + `smoke.py` 80 项 | `packages/arrkit/tests/` 76 项 |
+
+两边**互不引用**：`grep arrkit` 在主版本代码里为空，`grep anime_rss` 在 arrkit 里也为空。
+这样改任何一边都不会把另一边打挂；将来要让主版本迁到 arrkit 上，是一次显式替换
+（把 `anime_rss/kernel/*` 换成 `from arrkit import ...`），可单独评估、单独回滚。
+
+独立包比主版本多出来的东西，正好是「抽出来」才看得清的部分：
+
+- **端口真的分成目录**：`ports/` 只有抽象类，`adapters/` 只有实现，`kernel` 只 import 前者；
+- **时钟也是端口**：`FakeClock` 让定时任务测试不用真等 300 秒；
+- **`MemoryAssets`**：单文件打包或测试时，把前端资源塞进 dict 就能跑；
+- **`/_kit/settings`**：配置读写、归一化、`apply_settings` 回调是框架能力，不再由业务重复实现。
 
 ### 现在写一个模块长什么样
 

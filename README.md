@@ -335,7 +335,8 @@ anime-rss-reader/
 │  ├─ modules/         内置模块：feeds / reader / settings / schedule
 │  └─ api/             外壳：静态页、健康检查、/api/bootstrap 聚合、/api/jobs
 ├─ examples/plugins/   示例插件（连 static/ 复制到 plugins/ 即生效）
-├─ smoke.py            端到端冒烟测试，77 项检查，重构安全网
+├─ packages/arrkit/    抽出来的独立内核包（零依赖，可单独 pip install，与主版本互不影响）
+├─ smoke.py            端到端冒烟测试，80 项检查，重构安全网
 ├─ tests/              模块契约与单元测试（python -m unittest discover -s tests）
 ├─ docs/ARCHITECTURE.md 模块化与双向插件契约设计
 ├─ feeds.py            聚合引擎：多站抓取、镜像轮换、通用 RSS 解析、导出
@@ -481,6 +482,32 @@ app = export(my_host, data_dir="./data/anime")  # 宿主有 route/add_route/moun
 
 `create_app()` 只组装，`start()` 才启动任务表（自动刷新等），`stop()` 收尾；
 嵌入时默认不主动抓取网络，需要的话传 `fetch_on_start=True`。
+
+## 独立底座 arrkit
+
+内核（路由 / 事件 / 定时任务 / 前端视图 / 模块契约 / 端口适配器）已经抽成一个
+**零依赖的独立包**，放在 `packages/arrkit/`，可以脱离本项目单独使用：
+
+```bash
+pip install -e packages/arrkit
+```
+
+```python
+from arrkit import Module, create_kernel
+
+class Hello(Module):
+    id, name, version = "hello", "问候", "0.1.0"
+    def setup(self, ctx):
+        ctx.router.get("/api/hello", lambda req: {"hi": "world"})
+
+k = create_kernel(modules=[Hello], static_dir="static", port=8899)
+k.serve()
+```
+
+它与主版本**互不影响**：主版本仍用 `anime_rss/kernel/` 里自带的那份，不 import
+arrkit；arrkit 也不 import 任何动漫业务代码。两边各有各的版本号、测试和运行路径
+（`packages/arrkit/README.md` 有完整说明，示例 `examples/mini_app.py` 可以直接跑）。
+将来要让主版本也用这个底座，那是一次显式迁移，不是隐式耦合。
 
 ## 常见问题
 
