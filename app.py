@@ -32,7 +32,7 @@ from anime_rss.kernel.server import make_server
 from anime_rss.module import ModuleError
 
 APP_NAME = "动漫资源 · RSS 阅读器"
-VERSION = "1.5.0"
+VERSION = "2.0.0"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 if getattr(sys, "frozen", False):          # PyInstaller 单文件模式
