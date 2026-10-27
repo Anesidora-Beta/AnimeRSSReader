@@ -1,7 +1,7 @@
 # 架构设计：薄内核 + 双向插件契约
 
 > 目标版本线：v1.5.0 → v2.0.0
-> 状态：设计已定稿，P0 / P1 / P2 完成（四个模块全部迁完），下一步 P3
+> 状态：设计已定稿，P0 / P1 / P2 完成；P3 进行中（插件发现与示例插件已完成，bus / jobs / 前端视图待做）
 
 ## 1. 三条硬约束
 
@@ -154,7 +154,7 @@ window.ARR = {
 | **P0** ✅ | `smoke.py` 端到端冒烟 + 打 tag `v1.5.0` | 51 项全通过 |
 | **P1** ✅ | 抽 `kernel/`：路由表化、全局变量改 `ctx` 注入、静态资源挂载 | 功能零变化，`smoke.py` 68/68；`app.py` 1295 → 744 行，只剩组装与桌面代码 |
 | **P2** ✅ | 按 `schedule` → `feeds` → `reader` → `settings` 拆模块 | 四个模块迁完；`api/core.py` 447 → 84 行；路由 38 条逐条比对不变；27 项单测 + `smoke.py` 68/68 |
-| **P3** | 开放插件发现（entry_points + plugins/ 目录）+ 写示例插件验证契约 | 示例插件只靠公开 API 就能跑通 bus + jobs + 视图 |
+| **P3** 🔄 | 开放插件发现（entry_points + plugins/ 目录）+ 写示例插件验证契约 | 发现机制与示例插件已完成（`discovery.py` + `examples/plugins/hello.py`，8 项单测）；`bus` / `jobs` / 前端视图注册还没做 |
 | **P4** | `create_app()` / `export(host)` / `/api/v1` + 文档 | 用一个最小宿主程序（10 行内）成功加载并访问 |
 
 原则：**每一阶段结束时应用都要能跑**。不出现“改到一半不能用”的状态，任何一步不对就停下，不硬推。
@@ -187,6 +187,8 @@ window.ARR = {
 | `domain/` | 逻辑仍在 `schedule.py` / `feeds.py` 里 | 等模块搬完再拆纯函数层，避免一边搬一边改语义 |
 | `modules/{feeds,reader,schedule}` | `modules/{feeds,reader,settings,schedule}.py` | 四个模块全部迁完；`api/core.py` 只剩静态页、健康检查与 bootstrap 聚合 |
 | 设置 schema 由模块自带 | ✅ `Settings.define(group, after=)` | 每个 `Settings` 实例一份 schema，模块登记、越界照旧夹紧、位置可控 |
+| `registry.py` 插件发现 | ✅ `discovery.py` | entry_points（组 `anime_rss.plugins`）+ 本地 `plugins/` 目录；内置优先、坏插件只跳过不拖垮启动；`--no-third-party` 可整体关闭 |
+| `bus.py` / `jobs.py` | ❌ 未做 | 跨模块通信现在只能走 `ctx.module(id)` 拿对方实例；定时任务仍是裸线程 |
 
 ### 现在写一个模块长什么样
 

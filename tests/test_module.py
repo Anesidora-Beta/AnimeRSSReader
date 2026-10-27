@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import settings as CFG          # noqa: E402
 import store as ST              # noqa: E402
 from anime_rss import API_VERSION                       # noqa: E402
+from anime_rss.discovery import discover, merge_unique   # noqa: E402
 from anime_rss.kernel.context import Context            # noqa: E402
 from anime_rss.kernel.http import Router                # noqa: E402
 from anime_rss.module import Module, ModuleError, load_modules   # noqa: E402
@@ -278,6 +279,98 @@ class BootstrapFragmentTest(_Tmp, unittest.TestCase):
         # 聚合时出错的模块被跳过，其它片段照旧
         self.assertEqual(set(reg.get("settings").bootstrap(self.ctx_obj)),
                          {"settings"})
+
+
+class DiscoveryTest(unittest.TestCase):
+    """插件发现：单文件、包、坏文件、重名，四种情况都要按预期处理。"""
+
+    GOOD = """
+from anime_rss.module import Module
+from anime_rss.kernel.http import Response
+
+
+class DemoPlugin(Module):
+    id = "demo_plugin"
+    name = "演示插件"
+    version = "0.1.0"
+
+    def setup(self, ctx):
+        ctx.router.get("/api/demo_plugin/ping", self.ping)
+
+    def ping(self, req):
+        return Response.json({"ok": True})
+"""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="arr-plugins-")
+
+    def tearDown(self):
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def write(self, name, text):
+        path = os.path.join(self.dir, name)
+        os.makedirs(os.path.dirname(path), exist_ok=True) if os.path.dirname(path) else None
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        return path
+
+    def test_single_file_plugin(self):
+        self.write("demo.py", self.GOOD)
+        mods, problems = discover([self.dir], use_entry_points=False)
+        self.assertEqual(problems, [])
+        self.assertEqual([m.id for m in mods], ["demo_plugin"])
+
+    def test_package_plugin(self):
+        self.write(os.path.join("pkgdemo", "__init__.py"), self.GOOD)
+        mods, problems = discover([self.dir], use_entry_points=False)
+        self.assertEqual(problems, [])
+        self.assertEqual([m.id for m in mods], ["demo_plugin"])
+
+    def test_broken_plugin_does_not_raise(self):
+        self.write("broken.py", "import 不存在的模块\n")
+        mods, problems = discover([self.dir], use_entry_points=False)
+        self.assertEqual(mods, [])
+        self.assertEqual(len(problems), 1)
+        self.assertIn("broken.py", problems[0])
+
+    def test_file_without_module_reported(self):
+        self.write("plain.py", "X = 1\n")
+        mods, problems = discover([self.dir], use_entry_points=False)
+        self.assertEqual(mods, [])
+        self.assertIn("没有 Module 子类", problems[0])
+
+    def test_underscore_files_ignored(self):
+        self.write("_private.py", self.GOOD)
+        mods, problems = discover([self.dir], use_entry_points=False)
+        self.assertEqual((mods, problems), ([], []))
+
+    def test_missing_directory_is_fine(self):
+        mods, problems = discover([os.path.join(self.dir, "nope")],
+                                  use_entry_points=False)
+        self.assertEqual((mods, problems), ([], []))
+
+    def test_duplicate_id_dropped(self):
+        class Builtin(Module):
+            id = "demo_plugin"
+            name = "内置"
+
+            def setup(self, ctx):
+                pass
+
+        self.write("demo.py", self.GOOD)
+        extra, _ = discover([self.dir], use_entry_points=False)
+        merged = merge_unique([Builtin], extra)
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0].name, "内置")      # 内置优先
+
+    def test_plugin_without_id_dropped(self):
+        class NoId(Module):
+            name = "没 id"
+
+            def setup(self, ctx):
+                pass
+
+        self.assertEqual(merge_unique([], [NoId()]), [])
 
 
 class SettingsDefineTest(_Tmp, unittest.TestCase):

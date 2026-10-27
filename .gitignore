@@ -13,6 +13,9 @@ _version_info.txt
 __pycache__/
 *.pyc
 
+# 本地插件（示例见 examples/plugins/）
+/plugins/
+
 # 本地配置
 .env
 *.local

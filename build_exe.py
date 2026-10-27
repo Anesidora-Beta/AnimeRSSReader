@@ -106,6 +106,7 @@ def main():
         # 模块化：契约 + 内置模块清单（清单是静态元组，打包也不会漏）
         "--hidden-import", "anime_rss.module",
         "--hidden-import", "anime_rss.common",
+        "--hidden-import", "anime_rss.discovery",
         "--hidden-import", "anime_rss.modules",
         "--hidden-import", "anime_rss.modules.feeds",
         "--hidden-import", "anime_rss.modules.reader",

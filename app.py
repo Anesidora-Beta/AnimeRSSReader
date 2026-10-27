@@ -34,6 +34,7 @@ from anime_rss.kernel.assets import Assets, Mount
 from anime_rss.kernel.context import Context, local_ip
 from anime_rss.kernel.http import Router
 from anime_rss.kernel.server import Dispatcher, make_server
+from anime_rss.discovery import discover, merge_unique
 from anime_rss.module import ModuleError, load_modules
 from anime_rss.modules import BUILTIN_MODULES
 
@@ -606,6 +607,8 @@ def main(argv=None):
                     default=os.environ.get("ANIME_RSS_ON_CLOSE", "ask"),
                     help="关闭窗口后：ask 弹框询问（默认）/ exit 直接退出 / background 留在后台")
     ap.add_argument("--no-fetch", action="store_true", help="启动后不自动抓取")
+    ap.add_argument("--no-third-party", action="store_true",
+                    help="不加载第三方插件（plugins/ 目录与 entry_points），排障时用")
     args = ap.parse_args(argv)
 
     if args.host:
@@ -656,8 +659,17 @@ def main(argv=None):
 
     # 功能模块：每个模块自己建服务、挂 /api/<id>/ 路由
     quiet = os.environ.get("ANIME_RSS_QUIET") == "1"
+    say = None if quiet else print
+    modules = list(BUILTIN_MODULES)
+
+    # 第三方插件：entry_points + 程序目录下的 plugins/
+    if not args.no_third_party:
+        extra, _problems = discover([os.path.join(_BASE, "plugins")], log=say)
+        if extra:
+            modules = merge_unique(modules, extra, log=say)
+
     try:
-        load_modules(ctx, BUILTIN_MODULES, log=None if quiet else print)
+        load_modules(ctx, modules, log=say)
     except ModuleError as e:
         print(f"模块加载失败：{e}")
         store.close()

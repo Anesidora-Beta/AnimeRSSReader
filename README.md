@@ -298,6 +298,7 @@ python app.py [选项]
                     （不写这个参数时，用「设置 → 程序行为」里选的动作）
   --no-browser      启动后不自动打开任何界面
   --no-fetch        启动后不自动抓取
+  --no-third-party  不加载第三方插件（排障时用）
 ```
 
 **关于"为什么要打开浏览器"**：后端是本地 HTTP 服务，界面是网页，所以需要一个渲染器。
@@ -305,7 +306,8 @@ python app.py [选项]
 不干扰日常浏览器），观感与普通桌面软件一致；没装这两种浏览器时退回系统默认浏览器。
 
 环境变量：`PORT`、`HOST`、`ANIME_RSS_DATA`（数据目录）、`ANIME_RSS_ON_CLOSE`（同 `--on-close`）、
-`ANIME_RSS_KEEP_ALIVE=1`（等价于 `--on-close background`）、`ANIME_RSS_QUIET=1`（不打印访问日志）。
+`ANIME_RSS_KEEP_ALIVE=1`（等价于 `--on-close background`）、`ANIME_RSS_QUIET=1`（不打印访问日志）、
+`ANIME_RSS_PLUGIN_DEBUG=1`（插件加载失败时打印完整堆栈）。
 
 ## 数据与备份
 
@@ -327,8 +329,10 @@ anime-rss-reader/
 │  ├─ kernel/          薄内核：http 原语、静态资源、服务适配、应用上下文
 │  ├─ module.py        模块契约：Module / 加载顺序 / api_version 校验
 │  ├─ common.py        模块共用的视图工具（来源名、设置快照、生效回调）
+│  ├─ discovery.py     插件发现：entry_points + 本地 plugins/ 目录
 │  ├─ modules/         内置模块：feeds / reader / settings / schedule
 │  └─ api/             外壳：静态页、健康检查、/api/bootstrap 聚合
+├─ examples/plugins/   示例插件（复制到 plugins/ 即生效）
 ├─ smoke.py            端到端冒烟测试，68 项检查，重构安全网
 ├─ tests/              模块契约与单元测试（python -m unittest discover -s tests）
 ├─ docs/ARCHITECTURE.md 模块化与双向插件契约设计
@@ -388,6 +392,51 @@ anime-rss-reader/
 | GET | `/feed.xml`、`/feed/<id>.xml`、`/opml.xml` | RSS / OPML 导出 |
 
 条目列表的 `feed` 参数也接受 `watch:<关注id>`，取该关注命中的条目。
+
+## 插件
+
+功能模块化之后，加功能不需要改主程序 —— 写一个模块丢进去就行。
+
+### 装一个插件
+
+**方式一：放进 `plugins/` 目录**（最简单）
+
+```bash
+cp examples/plugins/hello.py plugins/
+python app.py
+```
+
+启动日志会多一行 `模块 hello v0.1.0 示例插件`，设置页多一个「示例插件」分组，
+`GET /api/hello` 可用。
+
+**方式二：打成 Python 包**，在 `pyproject.toml` 里声明入口点：
+
+```toml
+[project.entry-points."anime_rss.plugins"]
+hello = "my_hello_plugin:HelloModule"
+```
+
+`pip install` 之后自动加载，升级插件不用动主程序。
+
+### 插件能做什么
+
+| 钩子 | 用途 |
+|---|---|
+| `setup(ctx)` | 挂路由（`/api/<id>/...`）、登记自己的设置项、起线程、建表 |
+| `bootstrap(ctx)` | 往首屏数据里加一段；抛异常会被跳过，不影响别的模块 |
+| `apply_settings(values)` | 设置保存后回调，让新配置立刻生效 |
+| `teardown()` | 退出前收尾 |
+
+`ctx` 上有 `store` / `settings` / `refresher` / `schedule` / `router` / `assets` /
+`data_dir` / `port` / `module(id)`。完整示例见 `examples/plugins/hello.py`，
+设计说明见 `docs/ARCHITECTURE.md`。
+
+### 几句实话
+
+- **插件与主程序同进程，权限完全一样** —— 没有沙箱，只装你信得过的插件；
+- 插件不能顶掉内置模块的 id，重名会被跳过；
+- 插件本身写坏了只会被跳过并打印原因，不会导致程序起不来；
+- 排障时用 `--no-third-party` 一次性关掉所有第三方插件。
 
 ## 常见问题
 
