@@ -1,7 +1,7 @@
 # 动漫资源 · RSS 阅读器
 
 把 [Anesidora-Beta/anime-rss](https://github.com/Anesidora-Beta/anime-rss) 的多站聚合能力，
-和一个能直接用的三栏 RSS 阅读器打包成一个**单进程、零依赖**的应用。
+和一个能直接用的三栏 RSS 阅读器打包成**单进程、零依赖**的应用。
 
 打开浏览器就是完整界面：左边选频道，中间翻条目，右边看详情，复制磁力就完事。
 
@@ -15,13 +15,9 @@
 
 ## 界面预览
 
-| 浅色 · 全部更新 | 深色 · 全部更新 |
-|---|---|
-| ![浅色主题](preview/desktop-light.png) | ![深色主题](preview/desktop-dark.png) |
-
-| 关注某部番（保留 30 天） | 镜像状态（站挂了自动换入口） |
-|---|---|
-| ![关注列表](preview/watch-light.png) | ![镜像状态](preview/mirrors.png) |
+| 浅色 | 深色 | 关注某部番 | 镜像状态 |
+|---|---|---|---|
+| ![浅色](preview/desktop-light.png) | ![深色](preview/desktop-dark.png) | ![关注](preview/watch-light.png) | ![镜像](preview/mirrors.png) |
 
 | 新番放送表 · 浅色 | 新番放送表 · 深色 |
 |---|---|
@@ -31,154 +27,83 @@
 
 | | 原仓库 | 本整合包 |
 |---|---|---|
-| 抓取六个站 | ✅ | ✅ 沿用原解析逻辑，未改动 |
-| 磁力规整 / 跨站去重 | ✅ | ✅ |
+| 抓取六个站、磁力规整、跨站去重 | ✅ | ✅ 沿用原解析逻辑，未改动 |
 | 输出 RSS 给别的阅读器 | ✅ | ✅ 仍然保留 |
 | 自己就是阅读器 | ❌ | ✅ 三栏界面、已读、收藏、搜索 |
 | 数据落地 | ❌ 每次现抓 | ✅ SQLite 本地库，历史可追溯 |
-| 关注某部番并保留一个月 | ❌ | ✅ 关键词自动提取，命中留 30 天 |
-| 站挂了自动换镜像 | ❌ | ✅ 多入口轮换 + AnimeGarden 兜底 |
-| 手机 / 平板访问 | ⚠️ 只看订阅链接 | ✅ 响应式界面，抽屉 + 全屏阅读 |
-| 任意 RSS 订阅 | ❌ | ✅ 自定义订阅源自动识别磁力/种子 |
-| 新番放送时间表 | ❌ | ✅ 四个平台合并成一张周历，直接关注 |
+| 关注某部番并保留一个月 | ❌ | ✅ 关键词自动匹配，命中留 30 天 |
+| 站挂了自动换镜像 / 手机访问 / 任意 RSS / 新番放送表 | ❌ | ✅ 见下文各节 |
 
 > 只做聚合与索引，不存储、不缓存、不分发任何资源文件。所有磁力与种子都指向原站。
 
 ## 快速开始
 
-### Windows · 免安装（最简单）
+### Windows · 免安装
 
-双击 `AnimeRSSReader.exe`，会弹出一个**没有地址栏和标签页的独立窗口**（用本机 Chrome/Edge 的 `--app` 模式渲染）。
+双击 `AnimeRSSReader.exe`（约 9.6 MB），弹出一个**没有地址栏和标签页的独立窗口**
+（用本机 Chrome/Edge 的 `--app` 模式渲染）。**关窗时会弹框问你**：
 
-**关闭窗口时会弹框让你选**（弹框置顶显示，不会被别的程序盖住）：
+- 【是】→ 退出程序；【否】→ 留在后台，手机 / 其它浏览器仍可访问。
+- 弹框直接出现在窗口原位置，不重开窗口、不跳位、不闪白。
+- 想回来看界面，**再双击一次 exe** 即可：它认出正在跑的实例，把窗口接回去，不会再开一个服务。
+- 后台状态下想彻底退出：任务管理器结束 `AnimeRSSReader.exe`；不想每次都被问就加 `--on-close exit`。
 
-- 选【是】→ 退出程序，服务停止
-- 选【否】→ 留在后台继续运行，手机 / 其它浏览器仍可访问，控制台自动缩到任务栏
+不需要装 Python，放任意目录（含 U 盘）都行；端口被占用会自动顺延到 8900、8901……
+第一次启动会在 exe 同级建 `userdata\`（用户数据）和 `data\`（日志、浏览器配置），
+换电脑只需带走 `userdata\`（见「数据与备份」）。
 
-窗口一关，弹框就直接出现在**窗口原来的位置**（不会重开窗口、不会跳位置、也不会闪白），选完之后按结果收尾。
+### 源码运行
 
-想回来看界面？**再双击一次 exe 就行**，它会认出正在跑的实例并直接把窗口接回去，不会开第二个服务。
-后台状态下想彻底退出：在任务栏把控制台窗口还原，按 `Ctrl+C` 或直接关掉它。
+| 平台 | 做法 |
+|---|---|
+| Windows | 双击 `start-windows.bat`（需 Python 3.9+，无需 `pip install`） |
+| macOS | `chmod +x start-mac.command start-unix.sh && ./start-mac.command` |
+| Linux / NAS | `./start-unix.sh` 或 `python3 app.py` |
+| Docker | `docker compose up -d`（数据挂到 `./data`） |
 
-- 不需要装 Python，单个文件约 9.4 MB，可放在任意目录（含 U 盘）。
-- 第一次启动会在 exe **同级目录**自动建立 `data\reader.db`，把 exe 和 data 目录一起拷走即可带走已读/收藏状态。
-- 关闭那个黑色命令行窗口，或按 `Ctrl+C`，即可停止服务。
-- 端口被占用会自动顺延到 8900、8901……
+访问 `http://localhost:8899/`。想打成单文件 exe：见 [docs/MAINTAINING.md](docs/MAINTAINING.md#打包发布)。
 
-### Windows · 源码方式
-
-双击 `start-windows.bat`（需要 Python 3.9+，无需 `pip install` 任何东西）。
-
-### macOS
-
-双击 `start-mac.command`。首次若提示「无法打开」，在终端执行一次：
-
-```bash
-cd 解压后的目录
-chmod +x start-mac.command start-unix.sh
-./start-mac.command
-```
-
-### Linux / NAS
+### 手机 / 平板访问
 
 ```bash
-cd anime-rss-reader
-./start-unix.sh            # 或 python3 app.py
+python3 app.py --lan          # Windows: start-windows.bat --lan
 ```
 
-### Docker
+终端会打印 `http://192.168.x.x:8899/`，同一 WiFi 下用手机打开即可，窄屏自动切成
+「顶部栏 + 单列列表 + 全屏阅读页」。
 
-```bash
-docker compose up -d        # 数据挂到 ./data
-# 或者
-docker build -t anime-rss . && docker run -d -p 8899:8899 -v "$PWD/data:/data" anime-rss
-```
-
-访问 `http://localhost:8899/`。
-
-### 自己打包成单个可执行文件
-
-```bash
-pip install pyinstaller
-python build_exe.py            # 单文件，产物在 dist/（窗口程序，没有黑框）
-python build_exe.py --onedir   # 文件夹版，启动更快、便于排查问题
-python build_exe.py --console  # 保留黑框，调试时能看实时日志
-```
-
-PyInstaller 不支持交叉编译，要哪个平台的程序就在哪个平台上跑一次。
-图标由 `build_icon.py` 用纯标准库光栅化生成（`icon.ico` / `icon.png`），换配色改文件顶部的常量即可。
-
-**关于那个黑框**：默认打成窗口程序（PE 子系统 `WINDOWS_GUI`），双击不会弹 cmd。
-代价是没有控制台输出，所以启动横幅和访问日志会写到 `data/logs/app.log`（超过 1 MB 自动重开），
-启动失败时会弹窗提示而不是静默退出。想确认产物类型可以跑：
-
-```bash
-python tools/check_subsystem.py dist/AnimeRSSReader.exe   # 2 = 窗口程序，3 = 控制台程序
-```
+<img src="preview/mobile.png" alt="手机端" width="320">
 
 ## 界面怎么用
 
-**左侧栏** — 四个快捷入口（未读 / 全部条目 / 收藏 / 新番放送表）＋ 关注列表 ＋ 九个内置频道 ＋ 自定义订阅。
-数字是未读数，`＋` 新建关注或订阅，鼠标移到关注项上有 `✎` 编辑、`×` 删除。
+**左侧栏** — 未读 / 全部条目 / 收藏 / 新番放送表四个快捷入口 ＋ 关注列表 ＋ 九个内置频道 ＋
+自定义订阅。数字是未读数，`＋` 新建，鼠标移到关注项上有 `✎` 编辑、`×` 删除。
 
-**中间列表** — 2 行标题、站点徽标、体积、做种数、时间。滚动到底自动加载更多。
-
-**右侧详情** — 一条资源的全部可用信息：
-
-- **复制磁力**（主按钮）— 一键复制，去下载器粘贴即可
-- **打开磁力** / **下载种子** / **帖子页** — 三种取资源方式按站点能力出现
-- **正文摘要 + 正文外链** — 原站放的各种网盘、字幕、讨论链接都抽出来了
-- **磁力原文** — 折叠着，需要时可以手动改 tracker
+**中间列表** — 两行标题、站点徽标、体积、做种数、时间；滚到底自动加载更多。
+**右侧详情** — 复制磁力（主按钮）/ 打开磁力 / 下载种子 / 帖子页（按站点能力出现）、
+正文摘要与正文外链、可折叠的磁力原文（想手动改 tracker 时用）。
 
 点开条目即标为已读，`☆` 收藏。
 
-### 快捷键
+| 键 | 作用 | 键 | 作用 |
+|---|---|---|---|
+| `J` / `↓` | 下一条 | `M` | 已读 / 未读切换 |
+| `K` / `↑` | 上一条 | `T` | 切换新番放送表 |
+| `S` | 收藏 / 取消 | `R` | 抓取最新（放送表里是重抓时间） |
+| `/` | 聚焦搜索 | `,` | 打开设置 |
+| `Esc` | 关闭阅读区 / 弹窗 | | |
 
-| 键 | 作用 |
-|---|---|
-| `J` / `↓` | 下一条 |
-| `K` / `↑` | 上一条 |
-| `S` | 收藏 / 取消收藏 |
-| `M` | 已读 / 未读切换 |
-| `T` | 切换新番放送表 |
-| `R` | 抓取最新（在放送表里是重新抓放送时间） |
-| `/` | 聚焦搜索 |
-| `,` | 打开设置 |
-| `Esc` | 关闭阅读区 / 弹窗（在放送表里退回条目列表） |
+左下角按钮循环切换主题：**自动 → 浅色 → 深色**，选择会记住并同步到服务端。
 
-### 主题
+## 功能说明
 
-左下角按钮循环切换：**自动 → 浅色 → 深色**，也可以到设置里改，选择会记住并同步到服务端。
-
-## 设置
-
-左下角 **设置**（或按 `,`）打开，分五组，改完立即生效、自动保存：
-
-![设置](preview/settings-light.png)
-
-| 分组 | 设置项 |
-|---|---|
-| 抓取与刷新 | 自动刷新开关、刷新间隔（5–1440 分钟）、启动时抓取、单源条数上限（50–500） |
-| 阅读体验 | 主题、正文字号（小 / 标准 / 大 / 特大）、列表密度（宽松 / 紧凑）、点开即已读、键盘快捷键开关 |
-| 新番放送表 | 数据来源开关（B站 / Bangumi / AniList / MAL）、缓存有效期（1–48 小时）、开播桌面通知 |
-| 存储与清理 | 保留天数、条目上限 |
-| 程序行为 | 关闭窗口时的动作（先问我 / 留在后台 / 直接退出） |
-| 关于与维护 | 版本、访问地址、数据文件位置、条目数与数据库大小，以及「立即清理旧条目」「压缩数据库」 |
-
-几个说明：
-
-- **自动刷新在服务端计时**，关掉网页、手机断开都照常执行；页面上的「下次自动刷新」时间就是服务端算出来的。
-- 关掉某个放送表来源后，它不会再被抓取，已有数据在下一次刷新后消失；至少要留一个来源。
-- 「清理」只删超过保留天数的**未收藏**条目，收藏和关注命中的条目不受影响。
-- 设置存在数据库里，和已读/收藏一起走，拷走 `data` 目录就带走了整套偏好。
-
-## 内置频道
+### 内置频道
 
 | 频道 | 说明 |
 |---|---|
 | 全部更新 | 六个站合并、跨站去重后按时间倒序 |
 | 动漫花园 | share.dmhy.org，中文资源最全，默认只留动画 / 季度全集 / RAW |
-| 花园镜像 AnimeGarden | 动漫花园的官方镜像 + BT 聚合站，国内可达性更好 |
+| 花园镜像 AnimeGarden | 动漫花园官方镜像 + BT 聚合，国内可达性更好 |
 | 蜜柑计划 | mikanani.me，番剧订阅为主，给种子直链 |
 | ACG.RIP | acg.rip，WebRip 画质好，字幕组集中 |
 | Nyaa | nyaa.si，国际站 RAW 与英译，带做种数 |
@@ -186,9 +111,9 @@ python tools/check_subsystem.py dist/AnimeRSSReader.exe   # 2 = 窗口程序，3
 | 1080p 合集 | 标题含 `1080p` 的全部条目 |
 | 只带磁力的站 | 仅动漫花园 / Nyaa / 萌番组 |
 
-## 关注列表
+### 关注列表
 
-盯某部番、某个字幕组、某个分辨率，不用每次翻列表。侧栏「关注」旁边 `＋` 新建：
+盯某部番、某个字幕组、某个分辨率，不用每次翻列表。侧栏「关注」旁 `＋` 新建：
 
 | 字段 | 说明 |
 |---|---|
@@ -197,51 +122,37 @@ python tools/check_subsystem.py dist/AnimeRSSReader.exe   # 2 = 窗口程序，3
 | 排除词 | 命中任意一个就跳过。如 `合集` |
 | 字幕组 | 逗号或空格分隔，命中任一即可。如 `喵萌奶茶屋,LoliHouse` |
 
-**自动提取**：每次抓取结束都会把近 60 天的条目重新跑一遍关注规则，
-所以关注是后加的、或者上个频道刚抓到的内容，也能立刻被挑出来。
-
-**保留一个月**：命中的条目从命中那天起单独保留 30 天 —— 即使源站的 RSS 已经翻页滚掉、
-主库按常规策略清掉了，关注里仍然看得到。侧栏副标题会显示「保留 N 天」。
-被关注引用的条目不会主库清理，关注记录过期后条目才随之释放。
+- **自动提取**：每次抓取结束都把近 60 天条目重跑一遍关注规则，后加的关注也能立刻挑出来。
+- **保留一个月**：命中条目从命中那天起单独留 30 天，即使源站翻页滚掉、主库按常规清掉，
+  关注里仍看得到；侧栏副标题显示「保留 N 天」。关注记录过期后条目才释放。
 
 关注条目同样支持未读计数、全部已读、收藏、搜索。
 
-## 新番放送时间表
+### 新番放送表
 
-侧栏第四项就是它，快捷键 `T`。打开就是一张当季周历，**四个平台的放送安排合并成一条**，
-不用在几个网站之间来回对照。
+侧栏第四项，快捷键 `T`：一张当季周历，**四个平台的放送安排合并成一条**。
 
 | 平台 | 提供什么 |
 |---|---|
 | 哔哩哔哩 | 官方追番时间表，精确到分钟，中文标题与封面 |
 | Bangumi 番组计划 | 每周放送表，中日文标题、评分、追番人数 |
 | AniList | 全球放送时间戳，下一集集数与总集数 |
-| MyAnimeList | Jikan 公共接口，英 / 日文标题与放送日（连不上会自动跳过） |
+| MyAnimeList | Jikan 公共接口，英 / 日文标题与放送日（连不上自动跳过） |
 
-**怎么合并的**：同一部番在不同平台叫法不一样，程序用「中文名 / 日文名 / 罗马字名」三套键
-把各平台的记录串起来 —— Bangumi 同时有中日文名，正好当中间人：B 站的中文标题和它的
-`name_cn` 对上，AniList 的原名和它的 `name` 对上，于是 B 站 → Bangumi → AniList 串成一条链。
-最后再用中文标题相似度兜一遍（季数不同的一律不并）。合并之后一部番只出现一次，
-卡片上标出所有来源，详情里还能看到「合并自 A + B」。
+同一部番在各平台叫法不同，程序用「中文名 / 日文名 / 罗马字名」三套键串起来（Bangumi 居中当中间人），
+再按中文标题相似度兜一遍（季数不同不合并），合并后一部番只出现一次，详情里能看到「合并自 A + B」。
 
-**能做什么**
+- 周历周一到周日，今天高亮；点卡片看详情（封面、别名、各平台入口）
+- 顶部「接下来」按倒计时排最近要更新的几部；卡片 `★` 直接建关注，或「在资源里搜」跳回列表
+- 平台筛选 + 番名搜索；窄屏自动切成「按天切换」
+- 缓存 6 小时，打开先读本地、过期后台刷（不挡界面），右上角按钮强制重抓；
+  周历存在 `userdata/reader.db` 里，断网也能翻。单平台连续失败 3 次会跳 20 分钟
 
-- 周历按周一到周日排，今天那一列高亮；点卡片看详情（封面、别名、各平台入口）
-- 顶部「接下来」横向条：按倒计时排最近要更新的几部，30 秒自动走一次
-- 卡片上的 `★` 或详情里的「关注这部番」→ 直接建一条关注，抓到资源后自动挑出来
-- 「在资源里搜」→ 拿番名跳回条目列表搜索，直接找字幕组发的资源
-- 平台筛选条 + 番名搜索；窄屏自动切成「按天切换」，手机上一屏一天
+> 放送时间统一换算成北京时间（UTC+8）。Bangumi 只给「星期几」，这类条目时间显示为「待定」。
 
-**什么时候更新**：打开时先读本地缓存，超过 6 小时就后台刷一轮（不挡界面）；
-右上角刷新按钮强制重抓。抓回来的周历存在 `data/reader.db` 里，断网也能照常翻。
-单个平台连续失败 3 次会暂时跳过 20 分钟，手动刷新可立刻重试 —— 比如 MAL 的 Jikan 接口
-在部分网络下连不上，其余三个平台照常工作，界面上会标出「1 个平台没取到」。
+### 镜像与国内网络
 
-> 放送时间统一换算成北京时间（UTC+8）。Bangumi 只给「星期几」，所以那一类条目时间显示为「待定」。
-
-## 镜像与国内网络
-
-每个站点可以有多个入口，抓取时按「上次成功的优先、冷却中的靠后」排序逐个尝试：
+每个站点可有多个入口，按「上次成功的优先、冷却中的靠后」逐个尝试：
 
 | 站点 | 入口 |
 |---|---|
@@ -249,306 +160,120 @@ python tools/check_subsystem.py dist/AnimeRSSReader.exe   # 2 = 窗口程序，3
 | 花园镜像 AnimeGarden | `api.animes.garden` |
 | 其它站 | 各自单一入口 |
 
-失败的入口会冷却 10 分钟，避免每次都卡在超时上。
+失败的入口冷却 10 分钟。动漫花园三个域名全连不上时，自动改走 AnimeGarden 的 `/resources/dmhy`
+取回同一批资源（仍归在「动漫花园」频道下），刷新状态里会提示「已用镜像取到 N 条」。
+左下角「镜像」按钮随时查看各入口状态。想接自己的反代：`ANIME_RSS_DMHY_HOST=https://my-mirror.example.com`。
 
-**国内网络兜底**：如果动漫花园的三个域名全部连不上，会自动改走 AnimeGarden 的
-`/resources/dmhy` 接口取回同一批资源（内容本来就是花园的，仍归在「动漫花园」频道下），
-刷新状态里会提示「已用镜像 AnimeGarden 取到 N 条」。
+### 自定义订阅
 
-左下角「镜像」按钮可以随时查看每个入口当前的状态（可用 / 冷却中 / 未检测）。
+侧栏「自定义订阅」旁 `＋`，填任意 RSS / Atom 地址。抓取时自动识别：
+`magnet:` 链接 → 显示「复制磁力 / 打开磁力」；`enclosure` 里的 `.torrent` → 「下载种子」；
+`nyaa:seeders` / `nyaa:size` → 显示做种数与体积；普通博客 → 当文章读。
 
-想接自己的反代，把环境变量指过去即可，它会排在最前面优先使用：
+### 给别的阅读器订阅
 
-```bash
-ANIME_RSS_DMHY_HOST=https://my-mirror.example.com
-```
+本应用同时是标准 RSS 服务：全部条目 `/feed.xml`、单频道 `/feed/dmhy.xml`（id 见 `api/bootstrap`）、
+全部订阅的 OPML `/opml.xml`。点侧栏「导出」按钮可直接复制这几个地址。
 
-## 自定义订阅
+## 设置
 
-点侧栏「自定义订阅」旁边的 `＋`，填任意 RSS / Atom 地址即可。抓取时会自动识别：
+左下角 **设置**（或 `,`）打开，分六组，改完立即生效、自动保存：
 
-- `magnet:` 链接 → 显示「复制磁力 / 打开磁力」
-- `enclosure` 里的 `.torrent` → 显示「下载种子」
-- `nyaa:seeders` / `nyaa:size` 之类的扩展字段 → 显示做种数与体积
-- 普通博客 / 资讯源 → 当文章读，正文与链接照常显示
+![设置](preview/settings-light.png)
 
-## 手机 / 平板访问
+| 分组 | 设置项 |
+|---|---|
+| 抓取与刷新 | 自动刷新开关、间隔（5–1440 分钟）、启动时抓取、单源条数上限（50–500） |
+| 阅读体验 | 主题、正文字号、列表密度、点开即已读、键盘快捷键开关 |
+| 新番放送表 | 来源开关（B站 / Bangumi / AniList / MAL）、缓存有效期（1–48 小时）、开播桌面通知 |
+| 存储与清理 | 保留天数、条目上限 |
+| 程序行为 | 关闭窗口时的动作（先问我 / 留在后台 / 直接退出） |
+| 关于与维护 | 版本、访问地址、数据位置、条目数与库大小；立即清理、压缩数据库、导出 / 恢复用户数据 |
 
-```bash
-python3 app.py --lan          # Windows: start-windows.bat --lan
-```
-
-启动后终端会打印一个 `http://192.168.x.x:8899/` 的地址，同一 WiFi 下用手机浏览器打开即可。
-界面在窄屏下会自动切换成：顶部栏 + 单列列表 + 全屏阅读页。
-
-<img src="preview/mobile.png" alt="手机端" width="320">
-
-## 给别的阅读器订阅
-
-本应用同时还是一个标准 RSS 服务，把条目导出给手机上更顺手的阅读器也行：
-
-- 全部条目：`http://<host>:8899/feed.xml`
-- 单个频道：`http://<host>:8899/feed/dmhy.xml`（id 见 `api/bootstrap`）
-- 全部订阅的 OPML：`http://<host>:8899/opml.xml`（可一次性导入别的阅读器）
-
-点侧栏「导出」按钮可以直接看到并复制这几个地址。
-
-## 命令行参数
-
-```bash
-python app.py [选项]
-
-  --port 8899       端口（被占用时自动往后顺延）
-  --lan             监听 0.0.0.0，开放给同 WiFi 的设备
-  --host 1.2.3.4    手动指定监听地址
-  --browser         用系统默认浏览器开普通标签页（默认是独立窗口）
-  --window-size     独立窗口尺寸，默认 1240,880
-  --on-close ask    关窗后怎么办：ask 弹框询问（默认）/ exit 直接退出 / background 留在后台
-                    （不写这个参数时，用「设置 → 程序行为」里选的动作）
-  --no-browser      启动后不自动打开任何界面
-  --no-fetch        启动后不自动抓取
-  --no-third-party  不加载第三方插件（排障时用）
-```
-
-**关于"为什么要打开浏览器"**：后端是本地 HTTP 服务，界面是网页，所以需要一个渲染器。
-默认用 Chrome/Edge 的 `--app` 模式开一个无地址栏的独立窗口（独立 `user-data-dir`，
-不干扰日常浏览器），观感与普通桌面软件一致；没装这两种浏览器时退回系统默认浏览器。
-
-环境变量：`PORT`、`HOST`、`ANIME_RSS_DATA`（数据目录）、`ANIME_RSS_ON_CLOSE`（同 `--on-close`）、
-`ANIME_RSS_KEEP_ALIVE=1`（等价于 `--on-close background`）、`ANIME_RSS_QUIET=1`（不打印访问日志）、
-`ANIME_RSS_PLUGIN_DEBUG=1`（插件加载失败时打印完整堆栈）。
+- **自动刷新在服务端计时**，关掉网页、手机断开都照常执行；页面上的「下次自动刷新」就是服务端算的。
+- 「清理」只删超过保留天数的**未收藏**条目，收藏和关注命中的不受影响。
+- 设置存在数据库里，跟着用户数据走。
 
 ## 数据与备份
 
-```
-data/reader.db     SQLite：订阅源配置、条目、已读/收藏状态、关注、新番放送表、用户设置
-```
-
-- 抓取到的条目默认保留 **30 天**（收藏的不受限制），总量上限 3 万条，超了自动淘汰最旧的未收藏条目
-- 这两个数字都能在「设置 → 存储与清理」里改，改完下次抓取就按新值清理
-- 备份 = 复制 `data/` 目录；换机器把整个文件夹带走也行
-- 想重来：删掉 `data/reader.db` 重启即可
-
-## 文件结构
+用户数据和运行残留分开放，**只有 userdata 需要带走**：
 
 ```
-anime-rss-reader/
-├─ app.py              组装层：拼上下文、加载模块、挂路由与静态资源、窗口监督
-├─ anime_rss/          应用包（内核 / 模块 / API 三层分开）
-│  ├─ app.py           可嵌入组装：create_app / App.start / handle / wsgi / serve
-│  ├─ host.py          作为别人插件的入口：export(host) / wsgi_app()
-│  ├─ kernel/          薄内核：http 原语、静态资源、服务适配、上下文、事件/任务/视图
-│  ├─ module.py        模块契约：Module / 加载顺序 / api_version 校验
-│  ├─ common.py        模块共用的视图工具（来源名、设置快照、生效回调）
-│  ├─ discovery.py     插件发现：entry_points + 本地 plugins/ 目录
-│  ├─ runtime.py       打包后的输出兜底：无控制台时把 stdout/stderr 接到 data/logs/app.log
-│  ├─ modules/         内置模块：feeds / reader / settings / schedule
-│  └─ api/             外壳：静态页、健康检查、/api/bootstrap 聚合、/api/jobs
-├─ examples/plugins/   示例插件（连 static/ 复制到 plugins/ 即生效）
-├─ packages/arrkit/    抽出来的独立内核包（零依赖，可单独 pip install，与主版本互不影响）
-├─ smoke.py            端到端冒烟测试，80 项检查，重构安全网
-├─ tests/              模块契约与单元测试（python -m unittest discover -s tests）
-├─ docs/ARCHITECTURE.md 模块化与双向插件契约设计
-├─ feeds.py            聚合引擎：多站抓取、镜像轮换、通用 RSS 解析、导出
-├─ sources.py          各站适配层（源自原仓库，新增 AnimeGarden）
-├─ schedule.py         新番放送表：四个平台的放送时间抓取、跨平台合并、周历缓存
-├─ settings.py         用户设置：默认值、校验、持久化、后台定时刷新线程
-├─ textutil.py         清洗：纯文本、外链、磁力规整、时间解析
-├─ store.py            SQLite 存储：去重写入、查询、已读收藏、关注匹配、放送表
-├─ static/
-│  ├─ index.html       页面骨架
-│  ├─ style.css        全部样式（深浅主题 / 响应式）
-│  ├─ app.js           全部前端逻辑（原生 JS，无框架）
-│  └─ icon.svg
-├─ start-windows.bat   Windows 启动
-├─ start-mac.command   macOS 双击启动
-├─ start-unix.sh       Linux / NAS 启动
-├─ Dockerfile          容器镜像
-├─ docker-compose.yml
-├─ build_exe.py        单文件可执行打包（默认窗口程序，--console 保留黑框）
-├─ build_icon.py       生成 icon.ico（纯标准库）
-├─ tools/check_subsystem.py  检查 exe 是窗口程序还是控制台程序
-├─ icon.ico / icon.png 程序图标
-├─ preview/            README 用的界面截图
-├─ dist/               打包产物（自己跑 build_exe.py 后生成）
-└─ data/               运行时生成
+userdata/                 用户数据 —— 拷走这一个文件夹就等于迁移
+├─ reader.db              SQLite：订阅源、条目、已读/收藏、关注、新番表、设置
+├─ hosts.json             镜像可用状态（丢了会重新探测）
+└─ userdata.json          这份数据是什么、什么时候导出的（自己会更新）
+
+data/                     本机运行残留，不用迁移
+├─ .window/               独立窗口用的浏览器配置
+├─ logs/app.log           运行日志
+├─ backups/               每次「从备份恢复」前的自动备份
+└─ exports/               --export-userdata 不带路径时的默认落点
 ```
 
-## API（想自己接脚本的话）
+条目默认保留 **30 天**（收藏不受限），总量上限 3 万条，超了淘汰最旧的未收藏条目 —— 两个数字
+都能在「设置 → 存储与清理」改。想重来：删掉 `userdata/reader.db` 重启即可。
 
-下面所有 `/api/...` 路径都同时提供一份 `/api/v1/...` 别名（同一批 handler），
-新脚本建议用版本化前缀。
+### 换电脑 / 换环境怎么恢复
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/api/bootstrap` | 频道、计数、站点、局域网地址 |
-| GET | `/api/items?feed=&filter=&q=&limit=&offset=` | 条目列表（`filter` = `all`/`unread`/`starred`/`magnet`） |
-| GET | `/api/item/<id>` | 单条详情 |
-| POST | `/api/read` | `{ids:[...], read:true}` |
-| POST | `/api/star` | `{id, starred:true}` |
-| POST | `/api/read-all` | `{feed}` 整个频道标为已读 |
-| POST | `/api/refresh` | 触发抓取（后台跑） |
-| GET | `/api/refresh` | 抓取进度 |
-| POST | `/api/feeds` | `{title, url}` 添加自定义订阅 |
-| PATCH | `/api/feeds/<id>` | 改名 / 启停 / 改筛选参数 |
-| DELETE | `/api/feeds/<id>` | 删除自定义订阅 |
-| GET | `/api/watches` | 关注列表（含命中数、未读数、剩余保留天数） |
-| POST | `/api/watches` | `{name, include, exclude, fansub}` 新建并立即匹配 |
-| PATCH | `/api/watches/<id>` | 改名 / 改关键词 / 启停（会重新匹配） |
-| DELETE | `/api/watches/<id>` | 删除关注 |
-| POST | `/api/watches/<id>/scan` | 手动重跑一次匹配 |
-| GET | `/api/schedule` | 新番放送表（`?refresh=1` 顺带触发重抓） |
-| GET | `/api/schedule/status` | 放送表抓取进度 |
-| POST | `/api/schedule/refresh` | 强制重新抓取各平台放送时间 |
-| GET | `/api/mirrors` | 各站点入口状态（可用 / 冷却中 / 未检测） |
-| GET | `/api/settings` | 当前设置值 + 各设置项的类型定义 + 运行信息 |
-| POST | `/api/settings` | `{values:{...}}` 只改传进来的那几项 |
-| POST | `/api/settings/reset` | 恢复全部默认值 |
-| POST | `/api/maintenance` | `{action:"clean"}` 清理旧条目 / `{action:"vacuum"}` 压缩数据库 |
-| POST | `/api/open-window` | 让已有实例把界面窗口重新打开 |
-| GET | `/api/views` | 已注册的前端视图清单（插件入口用） |
-| GET | `/api/jobs` | 定时任务状态：跑了几次、下次何时、最后的错误 |
-| GET | `/plug/<模块 id>/<文件>` | 模块自带的前端资源（脚本 / 样式） |
-| GET | `/feed.xml`、`/feed/<id>.xml`、`/opml.xml` | RSS / OPML 导出 |
+1. **拷文件夹**：把 `userdata/` 整个目录拷到新环境的程序目录旁边，启动即可。
+2. **拖 zip 到程序上**：把导出的 zip 拖到 `AnimeRSSReader.exe` 图标上，先恢复再启动。
+3. **界面里恢复**：「设置 → 关于与维护 → 从备份恢复…」，选那个 zip。
 
-条目列表的 `feed` 参数也接受 `watch:<关注id>`，取该关注命中的条目。
-
-## 插件
-
-功能模块化之后，加功能不需要改主程序 —— 写一个模块丢进去就行。
-
-### 装一个插件
-
-**方式一：放进 `plugins/` 目录**（最简单）
+导出：「设置 → 关于与维护 → 导出用户数据」下载 `AnimeRSSReader-userdata-<时间>.zip`
+（一致性快照，运行中导出也不会拿到半个库）；或者用命令行：
 
 ```bash
-mkdir -p plugins && cp -r examples/plugins/* plugins/
-python app.py
+AnimeRSSReader.exe --export-userdata "D:\备份\anime.zip"   # 导出后退出
+AnimeRSSReader.exe --import-userdata "D:\备份\anime.zip"   # 恢复后照常启动
+AnimeRSSReader.exe "D:\备份\anime.zip"                     # 同上（拖文件到程序上也是这个效果）
 ```
 
-启动日志会多一行 `模块 hello v0.2.0 示例插件`，侧栏多一个「示例插件」入口
-（界面来自插件自己的 `static/view.js`），设置页多一个分组，`GET /api/hello` 可用。
+恢复前会把当前数据整份备份到 `data/backups/userdata-<时间>/`，恢复的是一个整体：已读、收藏、
+关注、订阅、设置全部换成备份里那份。格式不对（不是 zip、没 `reader.db`、库坏了、来自更新版本）
+会直接拒绝，一个字都不改。
 
-**方式二：打成 Python 包**，在 `pyproject.toml` 里声明入口点：
+## 命令行参数
 
-```toml
-[project.entry-points."anime_rss.plugins"]
-hello = "my_hello_plugin:HelloModule"
-```
-
-`pip install` 之后自动加载，升级插件不用动主程序。
-
-### 插件能做什么
-
-| 钩子 | 用途 |
+| 参数 | 说明 |
 |---|---|
-| `setup(ctx)` | 挂路由（`/api/<id>/...`）、登记自己的设置项、登记定时任务、订阅事件 |
-| `bootstrap(ctx)` | 往首屏数据里加一段；抛异常会被跳过，不影响别的模块 |
-| `apply_settings(values)` | 设置保存后回调，让新配置立刻生效 |
-| `teardown()` | 退出前收尾（任务表已由内核统一停） |
-| `views` / `assets` | 声明前端视图与静态目录，侧栏入口自动出现 |
+| `--port 8899` | 端口（被占用时自动往后顺延） |
+| `--lan` / `--host 1.2.3.4` | 监听 `0.0.0.0` 开放给同 WiFi 设备 / 手动指定地址 |
+| `--browser` | 用系统默认浏览器开普通标签页（默认是独立窗口） |
+| `--window-size 1240,880` | 独立窗口尺寸 |
+| `--on-close ask\|exit\|background` | 关窗后：弹框询问（默认）/ 直接退出 / 留在后台 |
+| `--no-browser` / `--no-fetch` | 不自动开界面 / 启动后不自动抓取 |
+| `--no-third-party` | 不加载第三方插件（排障用） |
+| `--user-data DIR` | 用户数据文件夹（默认：程序目录/userdata） |
+| `--export-userdata [PATH]` | 导出用户数据 zip 后退出（省略 PATH 放 data/exports） |
+| `--import-userdata PATH` | 启动前从备份恢复（zip 或 userdata 文件夹） |
 
-`ctx` 上有 `store` / `settings` / `refresher` / `router` / `assets` /
-`bus`（事件）/ `jobs`（定时任务）/ `views`（前端视图）/ `data_dir` / `port` /
-`module(id)`。完整示例见 `examples/plugins/hello.py`，
-设计说明见 `docs/ARCHITECTURE.md`。
+环境变量：`PORT`、`HOST`、`ANIME_RSS_USERDATA`（用户数据目录）、`ANIME_RSS_DATA`（运行目录，
+兼容老用法）、`ANIME_RSS_ON_CLOSE`、`ANIME_RSS_KEEP_ALIVE=1`、`ANIME_RSS_QUIET=1`。
+完整清单见 [docs/MAINTAINING.md](docs/MAINTAINING.md#环境变量)。
 
-不想自己起线程：`ctx.every(60, fn, name="hello.tick")` 交给内核统一调度，
-退出时自动收尾，`GET /api/jobs` 能看到跑了多少次、下次什么时候。
-
-想加个界面：声明一个视图，写一份 `view.js` 调 `ARR.registerView({id, mount})`，
-其余（侧栏入口、加载脚本、切走时卸载）都由主程序负责。
-
-### 几句实话
-
-- **插件与主程序同进程，权限完全一样** —— 没有沙箱，只装你信得过的插件；
-- 插件不能顶掉内置模块的 id，重名会被跳过；
-- 插件本身写坏了只会被跳过并打印原因，不会导致程序起不来；
-- 排障时用 `--no-third-party` 一次性关掉所有第三方插件。
-
-## 嵌入到别的项目
-
-反过来的方向也支持：把整个阅读器当成别人项目里的一个模块。**不用起进程、不用端口**，
-宿主直接调 `handle()` 拿响应：
-
-```python
-from anime_rss.host import create_app
-
-app = create_app(data_dir="./data/anime")       # 组装，不联网、不起服务
-resp = app.handle("GET", "/api/v1/items")       # 拿内核的 Response
-print(resp.status, resp.body[:80])
-app.stop()                                      # 停任务表、收尾模块、关库
-```
-
-宿主已经有 Web 框架时，用 WSGI 或把路由表交出去：
-
-```python
-from anime_rss.host import wsgi_app, export
-
-site = wsgi_app(data_dir="./data/anime")        # 标准 WSGI callable
-app = export(my_host, data_dir="./data/anime")  # 宿主有 route/add_route/mount 即可
-```
-
-`/api/v1/*` 与老的 `/api/*` 是同一批 handler，新接入方用版本化前缀，老路径继续可用。
-
-`create_app()` 只组装，`start()` 才启动任务表（自动刷新等），`stop()` 收尾；
-嵌入时默认不主动抓取网络，需要的话传 `fetch_on_start=True`。
-
-## 独立底座 arrkit
-
-内核（路由 / 事件 / 定时任务 / 前端视图 / 模块契约 / 端口适配器）已经抽成一个
-**零依赖的独立包**，放在 `packages/arrkit/`，可以脱离本项目单独使用：
-
-```bash
-pip install -e packages/arrkit
-```
-
-```python
-from arrkit import Module, create_kernel
-
-class Hello(Module):
-    id, name, version = "hello", "问候", "0.1.0"
-    def setup(self, ctx):
-        ctx.router.get("/api/hello", lambda req: {"hi": "world"})
-
-k = create_kernel(modules=[Hello], static_dir="static", port=8899)
-k.serve()
-```
-
-它与主版本**互不影响**：主版本仍用 `anime_rss/kernel/` 里自带的那份，不 import
-arrkit；arrkit 也不 import 任何动漫业务代码。两边各有各的版本号、测试和运行路径
-（`packages/arrkit/README.md` 有完整说明，示例 `examples/mini_app.py` 可以直接跑）。
-将来要让主版本也用这个底座，那是一次显式迁移，不是隐式耦合。
+**为什么要打开浏览器**：后端是本地 HTTP 服务，界面是网页，需要一个渲染器。默认用 Chrome/Edge
+的 `--app` 模式开独立窗口（独立 `user-data-dir`，不干扰日常浏览器），没装则退回系统默认浏览器。
 
 ## 常见问题
 
-**抓不到内容？**
-先看左下角「镜像」里各入口的状态。动漫花园在国内常被阻断，程序会自动切到镜像域名，
-再不行会走 AnimeGarden 兜底，一般不需要代理。其它站点如果连不上，再考虑设置代理：
+**抓不到内容？** 先看左下角「镜像」里各入口状态。动漫花园国内常被阻断，程序会自动切镜像域名，
+再不行走 AnimeGarden 兜底，一般不需要代理。其它站点连不上再考虑代理：
+`HTTPS_PROXY=http://127.0.0.1:7890 ./start-unix.sh`。
 
-```bash
-# Windows
-set HTTPS_PROXY=http://127.0.0.1:7890 && start-windows.bat
-# macOS / Linux
-HTTPS_PROXY=http://127.0.0.1:7890 ./start-unix.sh
-```
+**首次打开是空的？** 首次运行会后台抓一轮（约 5–15 秒），列表自动刷新出来；也可按 `R`。
 
-**端口被占用？**
-会自动往后找，终端里显示的地址以实际打印为准；也可以 `--port 9000` 手动指定。
+**新番放送表是空的？** 点右上角刷新重抓。四个平台并发请求，通常 2–5 秒出结果；点「来源」能看到
+每个平台取到多少部、耗时、失败原因。MAL 走 Jikan 公共接口，个别网络连不上属正常。
 
-**首次打开列表是空的？**
-首次运行会自动在后台抓一轮（约 5–15 秒），列表会自动刷新出内容。也可以点右上角刷新按钮或按 `R`。
+**端口被占用？** 自动往后找，以终端打印的地址为准；也可 `--port 9000`。
 
-**新番放送表是空的？**
-点放送表右上角的刷新按钮重抓一次。抓取时四个平台是并发请求的，通常 2–5 秒出结果；
-点「来源」能看到每个平台取到多少部、耗时多少、失败原因。MAL 走的是 Jikan 公共接口，
-个别网络环境连不上属正常，其余三个平台照常出表。
+**杀毒软件报毒？** PyInstaller 单文件 exe 偶发误报，源码运行不会有。
 
-**Windows 提示 Python 未安装？**
-装 [Python 3.9+](https://www.python.org/downloads/)，安装时勾选 *Add Python to PATH*。
+## 开发与维护
 
-**杀毒软件报毒？**
-用 PyInstaller 打包的单文件 exe 偶发误报，源码运行不会有这个问题。
+架构、文件结构、API、插件、嵌入、打包、测试、排障都在 **[docs/MAINTAINING.md](docs/MAINTAINING.md)**；
+模块化与插件契约的设计说明见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
 ## 致谢
 
