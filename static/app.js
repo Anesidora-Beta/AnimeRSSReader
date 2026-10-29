@@ -328,8 +328,24 @@
       if (state.q) {
         body.innerHTML = '<div class="list-empty"><b>没有匹配的条目</b>换个关键词试试，或清空搜索。</div>';
       } else if (currentWatch()) {
-        body.innerHTML = '<div class="list-empty"><b>这个关注还没匹配到条目</b>' +
-          '刷新一轮试试，或把关键词放宽一点（多个词是「全部都要包含」的关系）。</div>';
+        // 关注项为空有两种完全不同的原因：真没抓到时说「放宽关键词」，
+        // 只是被筛选挡住时得直说，否则用户会一直点刷新。
+        var cw = currentWatch();
+        var n = cw.total || 0;
+        if (state.filter === "starred") {
+          body.innerHTML = '<div class="list-empty"><b>这个关注有 ' + n +
+            ' 条，但一条都还没收藏</b>当前筛选是「收藏」，所以这里是空的。' +
+            '<br><br><button class="line-btn" data-action="showAll">看全部 ' + n +
+            ' 条</button></div>';
+        } else if (state.filter === "unread") {
+          body.innerHTML = '<div class="list-empty"><b>这个关注的条目都读完了</b>' +
+            '当前筛选是「未读」，所以这里是空的。' +
+            '<br><br><button class="line-btn" data-action="showAll">看全部 ' + n +
+            ' 条</button></div>';
+        } else {
+          body.innerHTML = '<div class="list-empty"><b>这个关注还没匹配到条目</b>' +
+            '刷新一轮试试，或把关键词放宽一点（多个词是「全部都要包含」的关系）。</div>';
+        }
       } else {
         var empty = state.counts.total === 0;
         body.innerHTML = empty
@@ -1348,8 +1364,17 @@
   function watchOfTitle(it) {
     var kw = animeKeyword(it).toLowerCase();
     if (!kw) return null;
+    // 和后端 scan_watches 用同一套判定：include 里的每个词都出现在标题里就算命中。
+    // 以前是整串等值比较，include 写成「FX」时对「FX战士久留美」永远不相等，
+    // 界面就一直显示未关注，点一下还会再建一个重复的关注。
     return (state.watches || []).filter(function (w) {
-      return (w.include || "").trim().toLowerCase() === kw;
+      var inc = (w.include || "").trim().toLowerCase();
+      if (!inc) return false;
+      if (inc === kw) return true;
+      var words = inc.split(/[\s,，、]+/).filter(Boolean);
+      return words.length > 0 && words.every(function (x) {
+        return kw.indexOf(x) >= 0;
+      });
     })[0] || null;
   }
 
@@ -1503,9 +1528,17 @@
       renderSidebar();
       updateCounts();
       renderSchedule();
-      if (SCH.current && SCH.current.id === it.id) openAnime(it.id);
-      toast(r.hits ? "已关注，命中 " + r.hits + " 条资源"
-                   : "已关注，下次抓取时会挑出来");
+      if (r.hits) {
+        if (SCH.current && SCH.current.id === it.id) openAnime(it.id);
+        toast("已关注，命中 " + r.hits + " 条资源");
+        return;
+      }
+      // 整条标题当关键词经常一条都匹配不上（繁简、日英写法不同），
+      // 所以别承诺「下次会挑出来」，直接把编辑框递过去让人改短。
+      openWatchModal(r.watch ? r.watch.id : null);
+      $("#wErr").textContent = "已关注，但「" + kw + "」暂时没命中资源。" +
+        "关键词建议改短，比如只留作品名里的拉丁/日文片段。";
+      $("#wErr").hidden = false;
     }).catch(function (e) { toast("关注失败：" + e.message); });
   }
 
@@ -1641,6 +1674,14 @@
       if (act) {
         if (act.dataset.action === "refresh") { refreshAll(); return; }
         if (act.dataset.action === "reload") { loadItems(true); return; }
+        if (act.dataset.action === "showAll") {
+          // 只清筛选，不动频道：用户还在这个关注里
+          state.filter = "all";
+          localStorage.setItem("arr.filter", "all");
+          syncNav();
+          loadItems(true);
+          return;
+        }
       }
       var row = e.target.closest(".row");
       if (row) selectItem(row.dataset.id);
