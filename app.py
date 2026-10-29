@@ -35,7 +35,7 @@ from anime_rss import userdata as UD
 from store import SCHEMA_VERSION
 
 APP_NAME = "动漫资源 · RSS 阅读器"
-VERSION = "2.1.0"
+VERSION = "2.1.1"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 if getattr(sys, "frozen", False):          # PyInstaller 单文件模式

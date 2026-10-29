@@ -65,7 +65,7 @@ node --check static/app.js                  # 前端语法
 cd packages/arrkit && python -m unittest discover -s tests   # 独立底座
 ```
 
-基线（v2.1.0）：**单测 131、冒烟 93、arrkit 全过**。改了接口就同步 `tests/test_module.py` 里的
+基线（v2.1.1）：**单测 131、冒烟 93、arrkit 全过**。改了接口就同步 `tests/test_module.py` 里的
 模块清单与路由断言，冒烟里补一条对应检查 —— 这两处是重构的安全网，别让它们比代码旧。
 
 ## 打包发布
