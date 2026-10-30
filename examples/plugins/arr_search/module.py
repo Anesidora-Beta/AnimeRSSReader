@@ -36,7 +36,7 @@ KEEP_NAME = "搜索收藏"
 class SearchModule(Module):
     id = "search"
     name = "深度搜索"
-    version = "1.0.0"
+    version = "1.1.0"
 
     views = ({
         "id": "search",

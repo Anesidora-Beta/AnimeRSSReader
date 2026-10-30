@@ -190,6 +190,65 @@ h1, h2, h3, p { margin: 0; }
   white-space: nowrap;
 }
 
+/* 快捷搜索：由插件认领后才显示（未认领时是 [hidden]，这里必须让位） */
+.quick-box {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 12px 9px;
+  padding: 0 8px;
+  height: 31px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--panel);
+  color: var(--fg-3);
+  transition: border-color .13s, box-shadow .13s;
+}
+.quick-box[hidden] { display: none; }
+.quick-box:focus-within {
+  border-color: var(--accent-line);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  color: var(--accent-fg);
+}
+.quick-ico { width: 14px; height: 14px; flex: none; opacity: .75; }
+.quick-src {
+  flex: none;
+  max-width: 74px;
+  border: 0;
+  background: transparent;
+  color: var(--fg-3);
+  font: inherit;
+  font-size: 11.5px;
+  padding: 0 2px 0 0;
+  cursor: pointer;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.quick-src[hidden] { display: none; }
+.quick-box input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+}
+.quick-box input::placeholder { color: var(--fg-3); }
+.quick-box input::-webkit-search-cancel-button { display: none; }
+.quick-box kbd {
+  flex: none;
+  font-family: inherit;
+  font-size: 10.5px;
+  color: var(--fg-3);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0 4px;
+  line-height: 15px;
+}
+
 .nav { padding: 2px 9px 6px; display: flex; flex-direction: column; gap: 1px; }
 
 .nav-item {
@@ -223,6 +282,19 @@ h1, h2, h3, p { margin: 0; }
 .nav-item.active svg { opacity: 1; }
 .nav-item.active em { color: var(--accent-fg); opacity: .8; }
 
+/* 未读是唯一需要你动手的数字，给点颜色；「全部」只是总量，压灰 */
+.nav-item[data-nav="unread"] em { color: var(--accent-fg); }
+
+/* 工具组：插件入口。单独成段，跟频道导航之间画一条线——
+   它不是频道，混在同一列里没有层级可言 */
+/* 工具是插件的容器，只有一个入口 —— 插件再多，侧栏也还是这么长 */
+.nav-tools {
+  margin-top: 3px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line-soft);
+}
+.nav-tools .nav { padding: 0 9px 6px; }
+
 .side-scroll {
   flex: 1;
   min-height: 0;
@@ -242,6 +314,37 @@ h1, h2, h3, p { margin: 0; }
   color: var(--fg-3);
 }
 .group-hint { font-weight: 500; letter-spacing: 0; opacity: .7; }
+
+/* 分组标题可折叠：资源站一多就把下面的订阅顶出屏幕 */
+.group-title[data-fold] {
+  cursor: pointer;
+  user-select: none;
+  border-radius: 6px;
+  transition: color .13s;
+}
+.group-title[data-fold]:hover { color: var(--fg-2); }
+.group-title[data-fold] > span:first-child::before {
+  content: "";
+  display: inline-block;
+  width: 0;
+  height: 0;
+  margin-right: 7px;
+  border-left: 5px solid currentColor;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transform: rotate(90deg);
+  transform-origin: 40% 50%;
+  transition: transform .16s ease;
+  vertical-align: 1px;
+  opacity: .75;
+}
+.group-title[data-fold].collapsed > span:first-child::before { transform: rotate(0deg); }
+.group-title[data-fold].collapsed { opacity: .72; padding-bottom: 8px; }
+/* 组与组之间拉一条细线，收起时也还看得出这是三段 */
+.group-title[data-fold]:not(:first-child) {
+  margin-top: 4px;
+  border-top: 1px solid var(--line-soft);
+}
 
 .mini-btn {
   width: 20px; height: 20px;
@@ -445,6 +548,50 @@ h1, h2, h3, p { margin: 0; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* 频道内筛选（全部 / 未读 / 收藏）。只在关注和频道里出现：
+   它们是「这个频道里的」，跟侧栏那三个「全部条目」的入口不是一回事。 */
+.list-filter {
+  display: flex;
+  gap: 4px;
+  margin-top: 9px;
+}
+.list-filter[hidden] { display: none; }
+.lf-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px;
+  height: 25px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fg-2);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background .13s, color .13s, border-color .13s;
+}
+.lf-btn:hover { background: var(--line-soft); color: var(--fg); }
+.lf-btn em {
+  font-style: normal;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-3);
+  padding: 0 4px;
+  border-radius: 5px;
+  background: var(--line-soft);
+  line-height: 15px;
+}
+.lf-btn.is-zero { color: var(--fg-3); }
+.lf-btn.is-zero em { opacity: .55; }
+.lf-btn.on {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--accent);
+  font-weight: 600;
+}
+.lf-btn.on em { background: transparent; color: var(--accent); }
 
 .search {
   display: flex;
@@ -1076,6 +1223,104 @@ kbd {
 }
 .app.schedule-mode .schedule-pane { display: flex; }
 
+/* ============================== 工具（插件）空间 ============================== */
+
+/* 和放送表一样的处理：进工具空间时收起列表与阅读区 */
+.app.tools-mode { grid-template-columns: var(--side-w) minmax(0, 1fr); }
+.app.tools-mode .list-pane,
+.app.tools-mode .reader-pane,
+.app.tools-mode .schedule-pane { display: none; }
+
+.tools-pane {
+  display: none;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg);
+}
+.app.tools-mode .tools-pane { display: flex; }
+
+.tools-head { padding: 16px 20px 14px; }
+.tools-title h2 { margin: 0; font-size: 17px; font-weight: 650; color: var(--fg); }
+.tools-title p { margin: 3px 0 0; font-size: 12px; color: var(--fg-3); }
+
+.tools-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 20px 30px;
+}
+
+/* auto-fill 让宽屏自动多排、窄屏自动收列，不用写三档断点。
+   列宽下限给到 250：再窄，插件那句说明就会被挤成三行截断。 */
+.tools-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 12px;
+  align-content: start;
+  max-width: 1180px;
+}
+
+.tool-card {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  width: 100%;
+  padding: 14px 15px 13px;
+  text-align: left;
+  font-family: inherit;
+  color: inherit;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  cursor: pointer;
+  transition: border-color .14s, box-shadow .14s, transform .1s;
+}
+.tool-card:hover { border-color: var(--accent-line); box-shadow: var(--shadow-sm); }
+.tool-card:active { transform: translateY(1px); }
+
+.tool-card-top { display: flex; align-items: center; gap: 10px; }
+/* 图标是插件自己给的字符（⌕ ⇱ ⧉），保持它不动；
+   方块只负责给一个统一的落脚点，别让字符大小决定卡片节奏 */
+.tool-ico {
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 16px;
+  font-style: normal;
+  line-height: 1;
+}
+.tool-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-ver {
+  margin-left: auto;
+  flex: none;
+  font-size: 10.5px;
+  color: var(--fg-3);
+  font-variant-numeric: tabular-nums;
+}
+.tool-desc {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--fg-3);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.tool-go { margin-top: auto; font-size: 11.5px; color: var(--accent); }
+
 /* ============================== 插件视图 ============================== */
 
 /* 和放送表一样的处理：进插件视图时收起列表与阅读区 */
@@ -1093,7 +1338,9 @@ kbd {
   background: var(--bg);
 }
 .app.plugin-mode .plugin-pane { display: flex; }
-.plugin-host { flex: 1; min-width: 0; padding: 18px 20px 30px; }
+/* min-height:0 是给 flex 子项的：默认 auto 会让容器被内容撑高，
+   插件里写 height:100% 就失效，底部固定的操作条会跑到几千像素之外 */
+.plugin-host { flex: 1; min-height: 0; min-width: 0; padding: 18px 20px 30px; }
 .plugin-host > h2:first-child { margin-top: 0; }
 
 /* 插件给的是文字图标（一个字符），别被 .nav-item span 的 flex:1 拉变形 */
@@ -1475,7 +1722,12 @@ kbd {
 @media (max-width: 860px) {
   .app.schedule-mode { grid-template-columns: minmax(0, 1fr); }
   .app.plugin-mode { grid-template-columns: minmax(0, 1fr); }
+  .app.tools-mode { grid-template-columns: minmax(0, 1fr); }
   .plugin-host { padding: 12px 12px 24px; }
+  .tools-head { padding: 10px 12px 10px; }
+  .tools-body { padding: 0 12px 84px; }
+  .tools-grid { grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)); gap: 9px; }
+  .tool-card { padding: 12px 12px 11px; }
   .sch-head { padding: 10px 12px 8px; }
   .sch-body { padding: 10px 10px 84px; }
   .sch-title h2 { font-size: 15px; }

@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<title>链接唤醒 · 离线预览</title>
+<style>
+  /* 主程序 :root 的变量照抄一份，这样直接双击预览页就能看到真实配色；
+     真正的插件在程序里运行时用的是程序自己的变量。 */
+  :root {
+    --bg: #f5f6f8; --panel: #fff; --panel-2: #fafbfc; --line: #e5e8ee;
+    --line-soft: #eef0f4; --fg: #14171c; --fg-2: #5a6472; --fg-3: #8d96a4;
+    --accent: #2f6fed; --accent-soft: #ebf1fe; --accent-line: #c3d6fd;
+    --accent-fg: #1b52c9; --ok: #12924f; --ok-soft: #e6f7ee;
+    --shadow-sm: 0 1px 2px rgba(16,24,40,.05);
+    --shadow: 0 10px 30px rgba(16,24,40,.09);
+    --r-sm: 7px; --r: 10px; --r-lg: 14px;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+            "Microsoft YaHei", Roboto, Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  html[data-theme="dark"] {
+    --bg: #0e1116; --panel: #161a21; --panel-2: #1b2029; --line: #262c37;
+    --line-soft: #1f242d; --fg: #e8ecf2; --fg-2: #a8b2c1; --fg-3: #78828f;
+    --accent: #4c86f5; --accent-soft: #1c2740; --accent-line: #2c4270;
+    --accent-fg: #8fb4ff; --ok: #4ade80; --ok-soft: #14301f;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.4);
+    --shadow: 0 10px 30px rgba(0,0,0,.5);
+  }
+  * { box-sizing: border-box; }
+  /* 主程序有这条兜底，预览页也得有，否则 [hidden] 会被组件的 display 盖掉 */
+  [hidden] { display: none !important; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font-family: var(--font); font-size: 14px;
+  }
+  /* 极简的主程序替身：左边一条假侧栏，右边是视图区 */
+  .fake-app { display: grid; grid-template-columns: 210px 1fr; height: 100vh; }
+  .fake-side {
+    background: var(--panel); border-right: 1px solid var(--line);
+    padding: 16px 10px; font-size: 13px; color: var(--fg-2);
+  }
+  .fake-side b { display: block; margin-bottom: 14px; font-size: 14px; color: var(--fg); }
+  .fake-side .on {
+    background: var(--accent-soft); color: var(--accent-fg);
+    border-radius: 7px; padding: 6px 9px; font-weight: 600; margin-bottom: 4px;
+  }
+  .fake-side .item { padding: 6px 9px; opacity: .7; }
+  .fake-main { min-width: 0; display: flex; flex-direction: column; }
+  #view { flex: 1; min-height: 0; }
+  #toast {
+    position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
+    background: var(--fg); color: var(--panel); font-size: 12.5px;
+    padding: 8px 14px; border-radius: 8px; opacity: 0; transition: opacity .2s;
+    pointer-events: none; z-index: 99; max-width: 70vw;
+  }
+  #toast.on { opacity: .94; }
+  .fake-bar {
+    position: fixed; right: 12px; top: 10px; display: flex; gap: 6px; z-index: 70;
+  }
+  .fake-bar button {
+    font: inherit; font-size: 12px; padding: 4px 9px; cursor: pointer;
+    color: var(--fg-2); background: var(--panel); border: 1px solid var(--line);
+    border-radius: 6px;
+  }
+</style>
+<link rel="stylesheet" href="../static/view.css">
+</head>
+<body>
+<div class="fake-bar">
+  <button id="theme">切换深色</button>
+  <button id="again">重放交互</button>
+</div>
+<div class="fake-app">
+  <div class="fake-side">
+    <b>动漫资源 · RSS 阅读器</b>
+    <div class="item">未读</div>
+    <div class="item">全部条目</div>
+    <div class="item">收藏</div>
+    <div class="item">新番放送表</div>
+    <div class="item">深度搜索</div>
+    <div class="on">链接唤醒</div>
+    <div class="item">插件管理</div>
+  </div>
+  <div class="fake-main"><div id="view"></div></div>
+</div>
+<div id="toast"></div>
+
+<script>
+/* ------------------------------------------------------------------
+ * 假宿主：只实现 view.js 真正用到的那几个 ctx 方法。
+ * 数据是编的，但结构、字段名、取值都照抄 /api/linkwake 的真实返回，
+ * 所以这里看到的界面与程序里一致。
+ * ------------------------------------------------------------------ */
+(function () {
+  function group(pid, name, badge, kind, color, urls, pwd) {
+    return { pid: pid, name: name, badge: badge, kind: kind, color: color,
+             note: "", urls: urls, count: urls.length, pwd: pwd || "" };
+  }
+
+  var ENTRIES = [
+    {
+      id: "it-1", source: "bangumi", size: "414.46 MB", pubdate: "",
+      ts: Math.floor(Date.now() / 1000) - 600, starred: true, read: false,
+      title: "[ANi] 黑化吧！聖女大人 第二季 - 05 [1080P][Baha][WEB-DL][AAC AVC][CHT][MP4]",
+      links: [], count: 4,
+      groups: [
+        group("magnet", "磁力链接", "BT", "bt", "#e74c3c",
+              ["magnet:?xt=urn:btih:420978f3bc68e3fc060fd9671883776da064a7af"]),
+        group("torrent", "种子文件", "种", "bt", "#2ecc71",
+              ["https://acg.rip/t/366484.torrent"]),
+        group("alipan", "阿里云盘", "阿", "pan", "#6c5ce7",
+              ["https://www.alipan.com/s/NRK4bk1dFSa"]),
+        group("baidu", "百度网盘", "度", "pan", "#2f6bff",
+              ["https://pan.baidu.com/s/1bKEvn_4GB5Vg6PFK3o-cNA?pwd=orio"], "orio"),
+        group("web", "网页", "网", "web", "#8a8f98",
+              ["https://bangumi.moe/torrent/6ae3713c992853e4c951d745"])
+      ]
+    },
+    {
+      id: "it-2", source: "acgrip", size: "395.26 MB", pubdate: "",
+      ts: Math.floor(Date.now() / 1000) - 7200, starred: false, read: true,
+      title: "[黒ネズミたち] 黑化吧！聖女大人 第二季 / Kizu darake Seijo Season 2 - 05 (Baha 1920x1080 AVC AAC MP4)",
+      links: [], count: 3,
+      groups: [
+        group("torrent", "种子文件", "种", "bt", "#2ecc71",
+              ["https://acg.rip/t/366483.torrent"]),
+        group("magnet", "磁力链接", "BT", "bt", "#e74c3c",
+              ["magnet:?xt=urn:btih:7b625cafd7e7653613473239ff871463d2c0f9f4"]),
+        group("file", "直链文件", "链", "file", "#16a085",
+              ["https://rr1---nfo.ouo.si/%5BDynamis%20One%5D%20Kizu.mkv?v=pre-20260429"])
+      ]
+    },
+    {
+      id: "it-3", source: "蜜柑计划", size: "1.2 GB", pubdate: "",
+      ts: Math.floor(Date.now() / 1000) - 86400 * 3, starred: false, read: false,
+      title: "[猎户压制部] 朱色假面 / Shuiro no Kamen [03][1080p][繁日内嵌]",
+      links: [], count: 6,
+      groups: [
+        group("quark", "夸克网盘", "夸", "pan", "#3b82f6",
+              ["https://pan.quark.cn/s/abcdef123456"]),
+        group("pan123", "123 云盘", "123", "pan", "#00a3ff",
+              ["https://www.123pan.com/s/xyzABC", "https://www.123pan.com/s/xyzDEF"]),
+        group("magnet", "磁力链接", "BT", "bt", "#e74c3c",
+              ["magnet:?xt=urn:btih:adc4b295de2df7b1f01ca7ccb2bdf2cafc41feb7"]),
+        group("tianyi", "天翼云盘", "翼", "pan", "#e60012",
+              ["https://cloud.189.cn/t/abcdefg"]),
+        group("mega", "MEGA", "M", "pan", "#d9272e",
+              ["https://mega.nz/file/abc123"]),
+        group("web", "网页", "网", "web", "#8a8f98",
+              ["https://jq.qq.com/?_wv=1027&k=Svfa0KHD"])
+      ]
+    },
+    {
+      id: "it-4", source: "动漫花园", size: "748 MB", pubdate: "",
+      ts: Math.floor(Date.now() / 1000) - 86400 * 8, starred: false, read: false,
+      title: "【幻樱字幕组】海贼王 第 1100 话 [GB_MP4][1080P]",
+      links: [], count: 2,
+      groups: [
+        group("ed2k", "eD2k 电驴", "驴", "bt", "#8e44ad",
+              ["ed2k://|file|OnePiece-1100.mkv|784334848|A1B2C3D4E5F6|/"]),
+        group("thunder", "迅雷专用链", "雷", "bt", "#1e90ff",
+              ["thunder://QUFodHRwOi8vZXhhbXBsZS5jb20vYS5ta3Y="])
+      ]
+    },
+    {
+      id: "it-5", source: "ACG.RIP", size: "—", pubdate: "",
+      ts: Math.floor(Date.now() / 1000) - 86400 * 20, starred: false, read: true,
+      title: "「资源合集」2026 秋番 1080p 全集合（持续更新）",
+      links: [], count: 3,
+      groups: [
+        group("gdrive", "Google Drive", "G", "pan", "#4285f4",
+              ["https://drive.google.com/drive/folders/1lA8TUzq2llGDyAgveD7FW8FjFhsW2x50"]),
+        group("onedrive", "OneDrive", "O", "pan", "#0078d4",
+              ["https://1drv.ms/u/s!AbCdEfGh"]),
+        group("wenshushu", "文叔叔", "文", "pan", "#ffb400",
+              ["https://www.wenshushu.cn/f/abc123"])
+      ]
+    }
+  ];
+
+  var COUNTS = { items: ENTRIES.length, links: 18, bt: 7, pan: 8, file: 1, web: 2 };
+
+  var PROVIDERS = [
+    { id: "magnet", name: "磁力链接", badge: "BT", kind: "bt", color: "#e74c3c" },
+    { id: "ed2k", name: "eD2k 电驴", badge: "驴", kind: "bt", color: "#8e44ad" },
+    { id: "thunder", name: "迅雷专用链", badge: "雷", kind: "bt", color: "#1e90ff" },
+    { id: "torrent", name: "种子文件", badge: "种", kind: "bt", color: "#2ecc71" },
+    { id: "baidu", name: "百度网盘", badge: "度", kind: "pan", color: "#2f6bff" },
+    { id: "alipan", name: "阿里云盘", badge: "阿", kind: "pan", color: "#6c5ce7" },
+    { id: "quark", name: "夸克网盘", badge: "夸", kind: "pan", color: "#3b82f6" },
+    { id: "pan123", name: "123 云盘", badge: "123", kind: "pan", color: "#00a3ff" },
+    { id: "tianyi", name: "天翼云盘", badge: "翼", kind: "pan", color: "#e60012" },
+    { id: "gdrive", name: "Google Drive", badge: "G", kind: "pan", color: "#4285f4" },
+    { id: "onedrive", name: "OneDrive", badge: "O", kind: "pan", color: "#0078d4" },
+    { id: "mega", name: "MEGA", badge: "M", kind: "pan", color: "#d9272e" },
+    { id: "wenshushu", name: "文叔叔", badge: "文", kind: "pan", color: "#ffb400" },
+    { id: "file", name: "直链文件", badge: "链", kind: "file", color: "#16a085" },
+    { id: "web", name: "网页", badge: "网", kind: "web", color: "#8a8f98" }
+  ];
+
+  function defApps() {
+    var out = {};
+    PROVIDERS.forEach(function (p) {
+      out[p.id] = { mode: p.kind === "pan" ? "web" : "open",
+                    scheme: "", exe: "", args: "{url}" };
+    });
+    return out;
+  }
+
+  window.__lwCalls = [];
+  var cfg = { apps: defApps(),
+              qb: { url: "http://127.0.0.1:8080", user: "admin",
+                    savepath: "D:/downloads", passwordSet: true },
+              aria2: { url: "", tokenSet: false, dir: "" } };
+
+  function filterEntries(kind) {
+    if (kind === "all" || !kind) return ENTRIES;
+    return ENTRIES.map(function (e) {
+      var gs = e.groups.filter(function (g) {
+        if (kind === "dl") return g.kind !== "web";
+        return g.kind === kind;
+      });
+      return Object.assign({}, e, { groups: gs, count: gs.length });
+    }).filter(function (e) { return e.groups.length; });
+  }
+
+  window.__lwSetKind = function (kind) {
+    window.__lwCounts = COUNTS;
+    return { ok: true, entries: filterEntries(kind), counts: COUNTS,
+             scanned: 120, kind: kind, providers: PROVIDERS,
+             modes: [{ id: "open", text: "系统默认程序" },
+                     { id: "web", text: "浏览器打开" },
+                     { id: "copy", text: "只复制不启动" },
+                     { id: "scheme", text: "客户端协议" },
+                     { id: "app", text: "指定程序" }],
+             cfg: cfg, opt: { allowRemote: false, autoPwd: true,
+                              onlyDownloadable: true, pageSize: 40 },
+             env: { canWake: true, dataDir: "（预览）", os: "nt" } };
+  };
+
+  var toastEl = document.getElementById("toast");
+  var toastTimer = null;
+
+  window.ARR = {
+    _views: [],
+    // 预览页没有阅读区，但 view.js 在加载时就会订阅 article:open，
+    // 这里没有 on() 的话整段脚本会抛错，预览页直接白屏。
+    on: function () { return function () {}; },
+    off: function () {},
+    emit: function () {},
+    toast: function (m) {
+      toastEl.textContent = m;
+      toastEl.className = "on";
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(function () { toastEl.className = ""; }, 2400);
+    },
+    registerView: function (spec) {
+      window.ARR._views.push(spec);
+      var host = document.getElementById("view");
+      spec.mount(host, {
+        toast: function (msg) {
+          toastEl.textContent = msg;
+          toastEl.className = "on";
+          clearTimeout(toastTimer);
+          toastTimer = setTimeout(function () { toastEl.className = ""; }, 2400);
+        },
+        esc: function (s) {
+          return String(s == null ? "" : s)
+            .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+        },
+        openItem: function (id) { window.__lwCalls.push(["openItem", id]); },
+        api: {
+          get: function (url) {
+            if (/\/item\//.test(url || "")) {
+              return Promise.resolve({ ok: false });   // 预览页没有阅读区
+            }
+            var m = /kind=([a-z]+)/.exec(url || "");
+            return Promise.resolve(window.__lwSetKind(m ? m[1] : "dl"));
+          },
+          send: function (method, url, body) {
+            window.__lwCalls.push([method, url, body]);
+            if (url.indexOf("/star") >= 0) {
+              return Promise.resolve({ ok: true, item: body });
+            }
+            if (url.indexOf("/wake") >= 0) {
+              return Promise.resolve({ ok: true, action: "open",
+                                       detail: "已交给系统默认程序",
+                                       url: body.url });
+            }
+            if (url.indexOf("/probe") >= 0) {
+              return Promise.resolve({ ok: true, detail: "qBittorrent v4.6.2 已连通" });
+            }
+            if (url.indexOf("/apps") >= 0) {
+              if (body && body.apps) {
+                Object.keys(body.apps).forEach(function (k) {
+                  cfg.apps[k] = body.apps[k];
+                });
+              }
+              if (body && body.qb) cfg.qb.url = body.qb.url || cfg.qb.url;
+              return Promise.resolve({ ok: true, cfg: cfg });
+            }
+            if (url.indexOf("/batch") >= 0) {
+              return Promise.resolve({ ok: true, action: body.action,
+                                       count: (body.urls || []).length });
+            }
+            return Promise.resolve({ ok: true });
+          }
+        }
+      });
+    }
+  };
+
+  document.getElementById("theme").addEventListener("click", function () {
+    var html = document.documentElement;
+    var dark = html.getAttribute("data-theme") === "dark";
+    html.setAttribute("data-theme", dark ? "light" : "dark");
+    this.textContent = dark ? "切换深色" : "切换浅色";
+  });
+  document.getElementById("again").addEventListener("click", function () {
+    // 原来这里手动重新 mount，引用的 __fmApi 根本不存在。重载最省事。
+    location.reload();
+  });
+})();
+</script>
+<script src="../static/view.js"></script>
+<script>
+/* 让「重放」按钮也能用同一套 ctx（上面那个先简化了，这里补回 api） */
+window.__fmApi = {
+  get: function (url) {
+    var m = /kind=([a-z]+)/.exec(url || "");
+    return Promise.resolve(window.__lwSetKind(m ? m[1] : "dl"));
+  },
+  send: function (method, url, body) {
+    window.__lwCalls.push([method, url, body]);
+    return Promise.resolve({ ok: true, action: "open", count: 1,
+                             detail: "已交给系统默认程序", cfg: {} });
+  }
+};
+</script>
+</body>
+</html>

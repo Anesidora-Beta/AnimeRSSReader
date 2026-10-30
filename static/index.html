@@ -35,6 +35,15 @@
       <span id="refreshText">就绪</span>
     </div>
 
+    <!-- 快捷搜索：插件认领后才出现（没装深度搜索就一直是 hidden）。
+         它不属于任何一个视图，所以放在这里 —— 在列表、插件页、工具页都能用。 -->
+    <div class="quick-box" id="quickBox" hidden>
+      <svg class="quick-ico" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="11" cy="11" r="6.3" stroke="currentColor" stroke-width="1.8"/><path d="m16 16 4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <select class="quick-src" id="quickSrc" hidden aria-label="搜索来源"></select>
+      <input id="quickQ" type="search" autocomplete="off" spellcheck="false">
+      <kbd>↵</kbd>
+    </div>
+
     <nav class="nav">
       <button class="nav-item" data-nav="unread">
         <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="7.2" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="2.4" fill="currentColor"/></svg>
@@ -54,21 +63,32 @@
       </button>
     </nav>
 
-    <div class="side-scroll">
-      <div class="group-title">
+    <!-- 插件不占侧栏位置：它们统一住进「工具」这个空间（一个独立视图）。
+         侧栏只留一个入口，装多少个插件都不会把导航撑长。 -->
+    <div class="nav-tools" id="navTools" hidden>
+      <div class="nav">
+        <button class="nav-item" data-nav="tools" id="navToolsBtn" title="所有插件都在这里">
+          <svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="7" height="7" rx="2" stroke="currentColor" stroke-width="1.6"/><rect x="13" y="4" width="7" height="7" rx="2" stroke="currentColor" stroke-width="1.6"/><rect x="4" y="13" width="7" height="7" rx="2" stroke="currentColor" stroke-width="1.6"/><rect x="13" y="13" width="7" height="7" rx="2" stroke="currentColor" stroke-width="1.6"/></svg>
+          <span>工具</span><em id="cTools">0</em>
+        </button>
+      </div>
+    </div>
+
+    <div class="side-scroll" id="sideScroll">
+      <div class="group-title" data-fold="watches">
         <span>关注</span>
         <button class="mini-btn" id="btnAddWatch" title="新建关注">＋</button>
       </div>
       <div id="watchList" class="feed-list"></div>
       <div class="empty-hint" id="watchEmpty">还没有关注<br>加个关键词，更新会自动挑出来留 30 天</div>
 
-      <div class="group-title">
+      <div class="group-title" data-fold="builtin">
         <span>资源站</span>
         <span class="group-hint" id="srcCount">5</span>
       </div>
       <div id="feedBuiltin" class="feed-list"></div>
 
-      <div class="group-title">
+      <div class="group-title" data-fold="custom">
         <span>自定义订阅</span>
         <button class="mini-btn" id="btnAddFeed" title="添加 RSS">＋</button>
       </div>
@@ -118,6 +138,12 @@
         <button class="icon-btn" id="btnReadAll" title="把当前频道全部标为已读">
           <svg viewBox="0 0 24 24" fill="none"><path d="M4.5 12.5 9 17l10.5-10.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
+      </div>
+      <!-- 频道内筛选：只在关注 / 频道里出现，「全部条目」用侧栏那三个入口 -->
+      <div class="list-filter" id="listFilter" hidden>
+        <button class="lf-btn" data-ff="all">全部<em>0</em></button>
+        <button class="lf-btn" data-ff="unread">未读<em>0</em></button>
+        <button class="lf-btn" data-ff="starred">收藏<em>0</em></button>
       </div>
       <div class="search">
         <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="6.3" stroke="currentColor" stroke-width="1.7"/><path d="m16 16 4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
@@ -237,9 +263,38 @@
     </div>
   </section>
 
+  <!-- ===================== 工具（插件）空间 ===================== -->
+  <!-- 所有插件都住在这里，侧栏只留一个入口 -->
+  <section class="tools-pane" id="toolsPane">
+    <div class="mobile-top">
+      <button class="icon-btn" id="btnMenuTools" aria-label="菜单">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+      <span>工具</span>
+      <span></span>
+    </div>
+
+    <header class="tools-head">
+      <div class="tools-title">
+        <h2>工具</h2>
+        <p id="toolsSub">插件都住在这里</p>
+      </div>
+    </header>
+
+    <div class="tools-body" id="toolsBody"></div>
+  </section>
+
   <!-- ===================== 插件视图容器 ===================== -->
-  <!-- 模块调 ARR.registerView() 后，侧栏出现入口，内容渲染到这里 -->
+  <!-- 点工具空间里的卡片后，插件内容渲染到这里 -->
   <section class="plugin-pane" id="pluginPane">
+    <!-- 窄屏没有侧栏，得留一条回工具空间的路 -->
+    <div class="mobile-top">
+      <button class="icon-btn" id="btnBackTools" aria-label="返回工具">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M15 5l-7 7 7 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <span id="pluginCrumb">工具</span>
+      <span></span>
+    </div>
     <div class="plugin-host" id="pluginHost"></div>
   </section>
 </div>

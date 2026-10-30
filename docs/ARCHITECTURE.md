@@ -123,13 +123,24 @@ class HelloModule(Module):
 ```js
 window.ARR = {
   version: 1,
-  registerView({ id, title, icon, mount(el, ctx), unmount }),  // 侧栏自动多一个入口
+  registerView({ id, title, icon, mount(el, ctx), unmount }),  // 工具空间里多一张卡片
   getView(id), views(),                                        // 查已注册视图
   on(event, fn) / off(event, fn) / emit(event, payload),        // 与后端 bus 同名事件
   toast(msg), esc(str), openItem(id),                           // 常用小工具
-  api: { get(path), send(method, path, body) }                  // 同一套请求封装
+  api: { get(path), send(method, path, body) },                 // 同一套请求封装
+  // —— 2.1.4 起：插件之间协作，谁都不用认识谁的 id ——
+  provide(cap, fn) / can(cap) / invoke(cap, payload),           // 能力登记表
+  openView(id),                                                 // 跳到某个插件视图
+  quickSearch({ id, label, placeholder, submit(q) })            // 认领侧栏快捷搜索
 }
 ```
+
+**能力登记表**是插件之间唯一的横向通道。插件 A 只说「`link.wake` 这件事我能办」，
+插件 B 只说「我需要 `link.wake`」；主程序在这中间只做转发，**不认识任何具体能力名**。
+没装对应插件时 `can()` 为 false，调用方自己退化成更笨但可用的做法（比如复制链接）。
+
+**快捷搜索**同理：谁认领谁出现。没插件认领时侧栏那条搜索框一直是 `hidden`，
+主程序不预设任何插件的存在。
 
 `view.js` 里能拿到的 `ctx`（**只增不改**，废弃字段保留两个版本）：
 

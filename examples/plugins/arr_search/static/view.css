@@ -319,11 +319,18 @@
   right: 10px;
   display: flex;
   gap: 4px;
-  opacity: 0;
-  transition: opacity .15s;
 }
 
-.sq-item:hover .sq-acts { opacity: 1; }
+/* 「下载」是这一行的主操作，不该藏进 hover 里 —— 搜出来就是为了拿东西，
+   看得见才点得到。收藏 / 关注留在 hover 出现，免得整页都是按钮。 */
+.sq-split .sq-act { opacity: .9; }
+/* 主操作给一点强调色，扫一眼就知道点哪儿下载 */
+.sq-split .sq-mag {
+  color: var(--accent-fg, #1b52c9);
+  border-color: var(--accent-line, #c3d6fd);
+}
+.sq-item:hover .sq-act,
+.sq-act:focus-visible { opacity: 1; }
 
 .sq-act {
   height: 24px;
@@ -334,9 +341,30 @@
   color: var(--sq-fg2);
   font-size: 11.5px;
   cursor: pointer;
+  opacity: 0;
+  transition: opacity .15s, color .13s, border-color .13s;
 }
 
 .sq-act:hover { color: var(--accent-fg, #1b52c9); border-color: var(--sq-accent); }
+
+/* 「下载」是拆开的两半：左边按默认方式打开，右边「▾」当场换一个。
+   合成一条看起来才不像两个按钮，但实际是两个 button —— button 不能嵌套。 */
+.sq-split { display: inline-flex; align-items: stretch; }
+.sq-split .sq-act:first-child {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  padding-right: 7px;
+}
+.sq-split .sq-mag-pick {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: 0;
+  padding: 0 6px;
+  font-size: 9px;
+  line-height: 1;
+  color: var(--sq-fg3, #8d96a4);
+}
+.sq-split .sq-mag-pick:hover { color: var(--accent-fg, #1b52c9); }
 
 .sq-empty {
   padding: 34px 20px;

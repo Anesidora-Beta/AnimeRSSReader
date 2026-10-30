@@ -27,7 +27,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 NAME = "AnimeRSSReader"
-VERSION = "2.1.1"
+VERSION = "2.1.5"
 SEP = ";" if os.name == "nt" else ":"
 
 VERSION_TEMPLATE = """# UTF-8

@@ -41,6 +41,8 @@
 
   var el = null;      // 视图根节点
   var ctxRef = null;
+  // 从侧栏快捷搜索带进来的词。视图还没挂载时先存这儿，boot 完再搜。
+  var pendingQ = "";
 
   // ---------------------------------------------------------------- 小工具
 
@@ -446,17 +448,14 @@
     box.innerHTML = S.items.map(rowHtml).join("");
     $$(".sq-item", box).forEach(function (node, i) {
       var it = S.items[i];
-      node.querySelector(".sq-mag").addEventListener("click", function () {
-        if (it.magnet) {
-          copyText(it.magnet).then(function () {
-            ctxRef.toast("磁力已复制");
-          }).catch(function () { ctxRef.toast("复制失败，请手动选择"); });
-        } else if (it.torrent) {
-          window.open(it.torrent, "_blank", "noopener");
-        } else {
-          ctxRef.toast("这条没有磁力或种子");
-        }
-      });
+      var magBtn = node.querySelector(".sq-mag");
+      if (magBtn) {
+        magBtn.addEventListener("click", function () { openLink(it, false); });
+      }
+      var pickBtn = node.querySelector(".sq-mag-pick");
+      if (pickBtn) {
+        pickBtn.addEventListener("click", function () { openLink(it, true); });
+      }
       var keepBtn = node.querySelector(".sq-keep");
       if (keepBtn) {
         keepBtn.addEventListener("click", function () { keep(it, this); });
@@ -498,7 +497,8 @@
     if (it.alsoIn && it.alsoIn.length) {
       meta.push('<span class="sq-tag">也在 ' + it.alsoIn.length + " 个源</span>");
     }
-    var acts = ['<button class="sq-act sq-mag" title="复制磁力 / 打开种子">磁力</button>'];
+    var acts = [];
+    if (it.magnet || it.torrent) acts.push(magButtonHtml());
     if (it.link) acts.push('<button class="sq-act sq-keep" title="存进本地库并加星">收藏</button>');
     var on = S.watched[it.id];
     acts.push('<button class="sq-act sq-watch' + (on ? " sq-watch-on" : "") +
@@ -510,6 +510,44 @@
       '<div class="sq-meta">' + meta.join('<i>·</i>') + "</div>" +
       '<div class="sq-acts">' + acts.join("") + "</div>" +
       "</article>";
+  }
+
+  // ------------------------------------------------------------ 磁力 → 唤醒
+  //
+  // 「下载」按钮不自己搞下载：把 URL 交给链接唤醒插件（如果装了），由它
+  // 认出这是磁力 / 种子 / 网盘，再按用户设的「优先响应」交给 qB、aria2 或
+  // 系统关联程序。没装那个插件就退回复制 —— 这是老行为，不能更差。
+  //
+  // 两个插件互不认识 id，只通过主程序的 ARR.can / ARR.invoke 这一层说话。
+  function wakeReady() {
+    return !!(window.ARR && typeof ARR.can === "function" && ARR.can("link.wake"));
+  }
+
+  function magButtonHtml() {
+    if (!wakeReady()) {
+      return '<button class="sq-act sq-mag" title="复制磁力链接">磁力</button>';
+    }
+    return '<span class="sq-split">' +
+      '<button class="sq-act sq-mag" title="交给下载器（在「链接唤醒」里改用哪个）">下载</button>' +
+      '<button class="sq-act sq-mag-pick" title="这次换个方式打开">▾</button>' +
+      "</span>";
+  }
+
+  function openLink(it, ask) {
+    var url = it.magnet || it.torrent || "";
+    if (!url) { ctxRef.toast("这条没有磁力或种子"); return; }
+    if (wakeReady() &&
+        ARR.invoke("link.wake", { url: url, title: it.title, ask: !!ask })) {
+      return;
+    }
+    // 没有链接唤醒：磁力只能复制，种子链接就开页面
+    if (it.magnet) {
+      copyText(it.magnet).then(function () {
+        ctxRef.toast("磁力已复制（装个「链接唤醒」就能一键交给下载器）");
+      }).catch(function () { ctxRef.toast("复制失败，请手动选择"); });
+    } else {
+      window.open(it.torrent, "_blank", "noopener");
+    }
   }
 
   function keep(it, btn) {
@@ -782,10 +820,12 @@
       renderTips();
       var id = S.providers.filter(function (p) { return p.kind === "local"; })[0];
       if (id && !S.sources.length) S.sources.push(id.id);
+      applyPendingQuery();
     }).catch(function (e) {
       S.providers = [];
       renderChips();
       ctxRef.toast("读取数据源失败：" + e.message);
+      applyPendingQuery();          // 源读不到也要把用户带过来的词搜出去
     });
 
     ctxRef.api.get("/api/search/presets").then(function (res) {
@@ -794,6 +834,18 @@
         renderPresets();
       }
     });
+  }
+
+  /** 从侧栏快捷搜索带进来的词：等源列表就绪再搜，否则会搜出 0 条。 */
+  function applyPendingQuery() {
+    if (!pendingQ) return;
+    var q = pendingQ;
+    pendingQ = "";
+    var box = $("#sqQ");
+    if (!box) return;
+    box.value = q;
+    S.q = q;
+    run(1);
   }
 
   ARR.registerView({
@@ -811,4 +863,27 @@
       ctxRef = null;
     }
   });
+
+  /* ------------------------------------------------------------ 快捷搜索
+   *
+   * 认领侧栏顶部那个搜索框。认领之后不用先进插件页：在主界面任何地方敲
+   * 番名回车，就直接跳进来搜。主程序不知道「深度搜索」是什么，它只负责
+   * 把词交给认领者 —— 换成别的插件认领也一样能用。
+   *
+   * 认领发生在脚本加载时（不是 mount）：这个框要在视图没打开时就在。
+   */
+  if (ARR.quickSearch) {
+    ARR.quickSearch({
+      id: "search",
+      label: "深度搜索",
+      hint: "跨源站检索历史帖子，回车跳到「深度搜索」",
+      placeholder: "跨站搜番名，回车检索…",
+      submit: function (q) {
+        pendingQ = q;
+        if (ARR.openView && ARR.openView("search")) return;
+        // 视图已经挂着（openView 返回 false 说明切换没发生）：直接就地搜
+        if (ctxRef) applyPendingQuery();
+      }
+    });
+  }
 })();

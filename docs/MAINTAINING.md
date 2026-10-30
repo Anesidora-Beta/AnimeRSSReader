@@ -65,7 +65,10 @@ node --check static/app.js                  # 前端语法
 cd packages/arrkit && python -m unittest discover -s tests   # 独立底座
 ```
 
-基线（v2.1.1）：**单测 131、冒烟 93、arrkit 全过**。改了接口就同步 `tests/test_module.py` 里的
+基线（v2.1.5）：**单测 142、冒烟 93、arrkit 全过**；插件侧 linkwake 134 项
+（含 jsdom 前端 131 条）、arr_search 68 项。
+
+改了接口就同步 `tests/test_module.py` 里的
 模块清单与路由断言，冒烟里补一条对应检查 —— 这两处是重构的安全网，别让它们比代码旧。
 
 ## 打包发布
@@ -150,7 +153,9 @@ hello = "my_hello_plugin:HelloModule"
 `ctx` 上有 `store` / `settings` / `refresher` / `router` / `assets` / `bus` / `jobs` / `views` /
 `data_dir` / `runtime_dir` / `port` / `module(id)`。不想自己起线程就用
 `ctx.every(60, fn, name="hello.tick")`，内核统一调度，`GET /api/jobs` 能看到次数与下次时间。
-加界面就声明视图 + `ARR.registerView({id, mount})`，侧栏入口、脚本加载、切走卸载都由主程序管。
+加界面就声明视图 + `ARR.registerView({id, mount})`，工具入口、脚本加载、切走卸载都由主程序管。
+要和别的插件协作（比如「把手上的链接交给下载器」）就用 `ARR.provide / can / invoke`
+登记一项能力，**不要**去 import 另一个插件的代码或判断它的 id。
 
 **几句实话**：插件与主程序同进程、权限完全一样，没有沙箱，只装信得过的；插件不能顶掉内置模块的
 id（重名跳过）；插件写坏只会被跳过并打印原因，不会让程序起不来；排障用 `--no-third-party`。

@@ -17,6 +17,26 @@
   sentinel.innerHTML = "<span>加载更多…</span>";
   sentinel.hidden = true;
 
+  // 每个频道的子筛选存成一张表：{"watch:xxx": "unread"}。
+  // 解析失败就当没有 —— 别让一条坏掉的 localStorage 把整个界面打死。
+  function readFeedFilter() {
+    try {
+      var o = JSON.parse(localStorage.getItem("arr.feedFilter") || "{}");
+      if (!o || typeof o !== "object" || o instanceof Array) return {};
+      var out = {};
+      Object.keys(o).forEach(function (k) {
+        if (o[k] === "unread" || o[k] === "starred") out[k] = o[k];
+      });
+      return out;
+    } catch (e) { return {}; }
+  }
+
+  function saveFeedFilter() {
+    try {
+      localStorage.setItem("arr.feedFilter", JSON.stringify(state.feedFilter));
+    } catch (e) {}
+  }
+
   var state = {
     boot: null,
     feeds: [],
@@ -26,6 +46,10 @@
     view: "items",                                           // items | schedule
     filter: localStorage.getItem("arr.filter") || "all",     // all | unread | starred
     feed: localStorage.getItem("arr.feed") || "all",
+    // 每个关注 / 频道各自记一条子筛选。放在 feed 对象里而不是复用 state.filter，
+    // 是因为「全部条目」那一档的筛选是全局的：它一旦泄漏到关注页，
+    // 用户点进一个关注只会看到被裁过的几条，看着像「什么都没抓到」。
+    feedFilter: readFeedFilter(),
     q: "",
     items: [],
     offset: 0,
@@ -120,6 +144,50 @@
 
   /* ------------------------------------------------------------ 侧栏 */
 
+  // 侧栏分组折叠：资源站一多就把下面的订阅顶出屏幕，
+  // 收起状态记在 localStorage，下次打开还是你上次看到的样子。
+  var FOLD_KEY = "arr.side.fold";
+  var FOLD = {};
+  try { FOLD = JSON.parse(localStorage.getItem(FOLD_KEY) || "{}") || {}; }
+  catch (e) { FOLD = {}; }
+
+  function foldTargets(titleEl) {
+    // 一个分组标题后面跟着它的兄弟，直到下一个标题为止。
+    // 边界是父容器：「工具」那一组的兄弟之外就是整个订阅区，
+    // 不划界的话收起工具会把下面的关注/资源站一起收掉。
+    var out = [];
+    var box = titleEl.parentNode;
+    var n = titleEl.nextElementSibling;
+    while (n && n.parentNode === box &&
+           !n.classList.contains("group-title") && !n.hasAttribute("data-fold")) {
+      out.push(n);
+      n = n.nextElementSibling;
+    }
+    return out;
+  }
+
+  function applyFold() {
+    $$("[data-fold]").forEach(function (t) {
+      var shut = !!FOLD[t.dataset.fold];
+      t.classList.toggle("collapsed", shut);
+      t.setAttribute("aria-expanded", shut ? "false" : "true");
+      foldTargets(t).forEach(function (b) {
+        // 空提示自己有显隐逻辑（这组到底有没有内容），不归折叠管：
+        // 一起设 hidden=false 会让「关注里有 FX战士」和「还没有关注」同时出现。
+        if (b.classList.contains("empty-hint")) return;
+        b.hidden = shut;
+      });
+    });
+  }
+
+  function toggleFold(titleEl) {
+    var k = titleEl.dataset.fold;
+    if (!k) return;
+    FOLD[k] = !FOLD[k];
+    try { localStorage.setItem(FOLD_KEY, JSON.stringify(FOLD)); } catch (e) { /* 无痕模式 */ }
+    applyFold();
+  }
+
   function renderSidebar() {
     var builtin = state.feeds.filter(function (f) { return f.kind === "builtin"; });
     var custom = state.feeds.filter(function (f) { return f.kind === "custom"; });
@@ -136,7 +204,7 @@
       var n = (c[f.id] && c[f.id].unread) || 0;
       return feedRow(f, n, true);
     }).join("");
-    $("#customEmpty").hidden = custom.length > 0;
+    $("#customEmpty").hidden = custom.length > 0 || !!FOLD.custom;
 
     renderWatches();
 
@@ -144,6 +212,7 @@
       el.classList.toggle("active", state.feed === el.dataset.feed);
       el.classList.toggle("off", el.dataset.enabled === "0");
     });
+    applyFold();
     syncNav();
   }
 
@@ -166,7 +235,7 @@
         '<span class="feed-del" data-delwatch="' + esc(w.id) + '" title="删除">×</span>' +
         "</button>";
     }).join("");
-    $("#watchEmpty").hidden = list.length > 0;
+    $("#watchEmpty").hidden = list.length > 0 || !!FOLD.watches;
   }
 
   function currentWatch() {
@@ -196,7 +265,11 @@
       var nav = el.dataset.nav;
       var active;
       if (nav === "schedule") active = state.view === "schedule";
-      else if (nav.indexOf("plugin:") === 0) active = state.view === nav;
+      // 进到任何一个插件里，侧栏亮的都是「工具」—— 它是插件的容器，
+      // 不是一个并列的频道，没必要按插件各自开一条高亮。
+      else if (nav === "tools") {
+        active = state.view === "tools" || state.view.indexOf("plugin:") === 0;
+      }
       else active = state.view === "items" && state.feed === "all" && state.filter === nav;
       el.classList.toggle("active", active);
     });
@@ -238,6 +311,7 @@
         badge.remove();
       }
     });
+    renderFeedFilter();          // 标记已读 / 收藏后，筛选条上的数字要跟着走
   }
 
   function currentFeed() {
@@ -263,6 +337,65 @@
     $("#listBody").innerHTML = h;
   }
 
+  // 「未读 / 收藏」有两个层级，别混在一起：
+  //   - 「全部条目」这一档用全局 state.filter（侧栏那三个入口）
+  //   - 每个关注 / 频道各自一条，存在 state.feedFilter 里，互不影响
+  // 分开的好处：在关注 A 里点了「只看未读」，切到关注 B 还是 B 自己的
+  // 「全部」。要是共用一条状态，B 会莫名其妙只剩几条，看着像没抓到东西。
+  function activeFilter() {
+    if (state.feed === "all") return state.filter;
+    return state.feedFilter[state.feed] || "all";
+  }
+
+  function setActiveFilter(f) {
+    if (state.feed === "all") {
+      state.filter = f;
+      try { localStorage.setItem("arr.filter", f); } catch (e) {}
+    } else if (f === "all") {
+      delete state.feedFilter[state.feed];      // 默认值不落盘，省得越存越多
+      saveFeedFilter();
+    } else {
+      state.feedFilter[state.feed] = f;
+      saveFeedFilter();
+    }
+    syncNav();
+    renderFeedFilter();
+    loadItems(true);
+  }
+
+  // 当前频道的三个数（总 / 未读 / 收藏）。关注是 watch:<id>，频道是 feed id。
+  function feedCounts() {
+    var c = state.counts || {};
+    var fid = state.feed || "";
+    if (fid.indexOf("watch:") === 0) {
+      return (c.watches || {})[fid.slice(6)] || {};
+    }
+    return (c.feeds || {})[fid] || {};
+  }
+
+  // 列表头那一排筛选。只在关注 / 频道里出现 —— 「全部条目」用侧栏那三个，
+  // 再排一排就是同一个功能画两遍，白占一行。
+  function renderFeedFilter() {
+    var box = $("#listFilter");
+    if (!box) return;
+    box.hidden = state.feed === "all";
+    if (box.hidden) return;
+    var cur = activeFilter();
+    var n = feedCounts();
+    $$("[data-ff]", box).forEach(function (b) {
+      var f = b.dataset.ff;
+      var c = f === "unread" ? (n.unread || 0)
+        : f === "starred" ? (n.starred || 0) : (n.total || 0);
+      b.classList.toggle("on", f === cur);
+      b.classList.toggle("is-zero", !c);
+      var em = b.querySelector("em");
+      if (em) em.textContent = c;
+      b.title = f === "unread" ? "只看这个频道里还没读的"
+        : f === "starred" ? "只看这个频道里收藏过的"
+          : "这个频道里的全部条目";
+    });
+  }
+
   function loadItems(reset) {
     var seq = ++state.seq;
     if (reset) {
@@ -273,7 +406,7 @@
     state.loading = true;
 
     var p = new URLSearchParams({
-      feed: state.feed, filter: state.filter, q: state.q,
+      feed: state.feed, filter: activeFilter(), q: state.q,
       limit: PAGE, offset: state.offset
     });
 
@@ -313,49 +446,43 @@
       if (w.include) bits.push("关注 " + w.include);
       if (w.remainDays) bits.push("保留 " + w.remainDays + " 天");
     }
-    if (state.filter === "unread") bits.push("仅未读");
-    if (state.filter === "starred") bits.push("仅收藏");
+    var filt = activeFilter();
+    if (filt === "unread") bits.push("仅未读");
+    if (filt === "starred") bits.push("仅收藏");
     if (f && f.kind === "custom") bits.push("自定义订阅");
     if (f && f.lastOk) bits.push("更新于 " + timeAgo(f.lastOk));
     else if (f && f.lastError) bits.push("上次抓取失败");
     bits.push(state.items.length + " 条");
     $("#channelSub").textContent = bits.join(" · ");
+    renderFeedFilter();
   }
 
   function renderList() {
     var body = $("#listBody");
     if (!state.items.length) {
+      var filt = activeFilter();
+      var total = feedCounts().total || 0;
       if (state.q) {
         body.innerHTML = '<div class="list-empty"><b>没有匹配的条目</b>换个关键词试试，或清空搜索。</div>';
+      } else if (filt !== "all") {
+        // 空有两种原因：真没抓到 / 被「未读·收藏」筛掉了。后者要直说，
+        // 否则用户对着空白页只会一直点刷新。这一条对关注和频道都成立。
+        var what = filt === "starred" ? "收藏" : "未读";
+        body.innerHTML = '<div class="list-empty"><b>这里有 ' + total +
+          ' 条，只是被「' + what + '」筛掉了</b>' +
+          (filt === "starred" ? "这个频道里还没有收藏过的条目。" : "这个频道的条目都读完了。") +
+          '<br><br><button class="line-btn" data-action="showAll">看全部 ' + total +
+          ' 条</button></div>';
       } else if (currentWatch()) {
-        // 关注项为空有两种完全不同的原因：真没抓到时说「放宽关键词」，
-        // 只是被筛选挡住时得直说，否则用户会一直点刷新。
-        var cw = currentWatch();
-        var n = cw.total || 0;
-        if (state.filter === "starred") {
-          body.innerHTML = '<div class="list-empty"><b>这个关注有 ' + n +
-            ' 条，但一条都还没收藏</b>当前筛选是「收藏」，所以这里是空的。' +
-            '<br><br><button class="line-btn" data-action="showAll">看全部 ' + n +
-            ' 条</button></div>';
-        } else if (state.filter === "unread") {
-          body.innerHTML = '<div class="list-empty"><b>这个关注的条目都读完了</b>' +
-            '当前筛选是「未读」，所以这里是空的。' +
-            '<br><br><button class="line-btn" data-action="showAll">看全部 ' + n +
-            ' 条</button></div>';
-        } else {
-          body.innerHTML = '<div class="list-empty"><b>这个关注还没匹配到条目</b>' +
-            '刷新一轮试试，或把关键词放宽一点（多个词是「全部都要包含」的关系）。</div>';
-        }
+        body.innerHTML = '<div class="list-empty"><b>这个关注还没匹配到条目</b>' +
+          '刷新一轮试试，或把关键词放宽一点（多个词是「全部都要包含」的关系）。</div>';
       } else {
         var empty = state.counts.total === 0;
         body.innerHTML = empty
           ? '<div class="list-empty"><b>还没有抓到内容</b>点下面的按钮抓一轮，或按 ' +
             '<kbd>R</kbd> 刷新。<br><br>' +
             '<button class="primary-btn" data-action="refresh">开始抓取</button></div>'
-          : '<div class="list-empty"><b>这里暂时是空的</b>' +
-            (state.filter === "unread" ? "所有条目都读完了。" :
-              state.filter === "starred" ? "点条目标题旁的 ☆ 收藏会出现在这里。" :
-                "换个频道或清空筛选看看。") + "</div>";
+          : '<div class="list-empty"><b>这里暂时是空的</b>换个频道或清空筛选看看。</div>';
       }
       sentinel.hidden = true;
       body.appendChild(sentinel);
@@ -493,6 +620,10 @@
     $("#artFoot").innerHTML = foot.join("");
 
     syncReaderTools(it);
+
+    // 扩展点：插件可以在这里给阅读区补按钮、给正文链接加标注。
+    // 主程序不认识任何具体插件，插件没装就什么都不发生。
+    BUS.emit("article:open", it);
   }
 
   function syncReaderTools(it) {
@@ -1083,29 +1214,84 @@
     return null;
   }
 
-  function addPluginNav(spec) {
-    var nav = $("nav.nav");
-    if (!nav) return;
-    var sel = '[data-nav="plugin:' + spec.id + '"]';
-    if (nav.querySelector(sel)) {
-      if (state.view === "plugin:" + spec.id) syncNav();
+  // 插件不占侧栏位置：它们统一住进「工具」这个空间（一个独立视图）。
+  // 侧栏只有一个入口，装多少个插件都不会把导航撑长 —— 之前是每个插件
+  // 平铺成一行，装到十个就得靠滚动才能看到「关注」。
+  function pluginViews() {
+    var seen = {};
+    var out = [];
+    // 后端登记过的（index.html 里按 id 排好的那份）
+    ((state.boot && state.boot.views) || []).forEach(function (v) {
+      if (!v || !v.id) return;
+      seen[v.id] = true;
+      out.push(v);
+    });
+    // 脚本注册成功但后端没登记的，也要能进去
+    Object.keys(PLUG.views).forEach(function (id) {
+      if (!seen[id]) out.push(PLUG.views[id]);
+    });
+    return out.sort(function (a, b) { return (a.order || 100) - (b.order || 100); });
+  }
+
+  // 侧栏那一个入口：有没有插件、一共几个
+  function syncToolsEntry() {
+    var box = $("#navTools");
+    var n = pluginViews().length;
+    var em = $("#cTools");
+    if (em) em.textContent = n;
+    if (box) box.hidden = n === 0;
+  }
+
+  function renderToolsPage() {
+    var body = $("#toolsBody");
+    if (!body) return;
+    var list = pluginViews();
+
+    var sub = $("#toolsSub");
+    if (sub) {
+      sub.textContent = list.length
+        ? list.length + " 个插件 · 点开就用"
+        : "还没有装插件";
+    }
+
+    if (!list.length) {
+      body.innerHTML = '<div class="list-empty"><b>这里还没有插件</b>' +
+        "把插件目录放进主程序的 <code>plugins/</code> 下，重启后就会出现在这里。" +
+        "也可以先在插件管理里装一个 zip。</div>";
       return;
     }
-    var btn = document.createElement("button");
-    btn.className = "nav-item";
-    btn.dataset.nav = "plugin:" + spec.id;
-    btn.title = spec.description || spec.title || spec.id;
-    btn.innerHTML = '<i class="nav-ico">' + esc(spec.icon || "◆") + "</i>" +
-      "<span>" + esc(spec.title || spec.id) + "</span>" +
-      (spec.badge ? "<em>" + esc(spec.badge) + "</em>" : "");
-    btn.addEventListener("click", function () { switchView("plugin:" + spec.id); });
-    nav.appendChild(btn);
+
+    body.innerHTML = '<div class="tools-grid">' + list.map(function (v) {
+      var meta = manifestOf(v.id) || {};
+      var ver = meta.version || v.version || "";
+      var desc = v.description || meta.description || "这个插件没写说明。";
+      var name = v.title || meta.title || v.id;
+      var glyph = v.icon || meta.icon || "◆";
+      return '<button class="tool-card" data-tool="' + esc(v.id) + '">' +
+        '<span class="tool-card-top">' +
+          '<i class="tool-ico">' + esc(glyph) + "</i>" +
+          '<span class="tool-name">' + esc(name) + "</span>" +
+          (ver ? '<span class="tool-ver">v' + esc(ver) + "</span>" : "") +
+        "</span>" +
+        '<span class="tool-desc">' + esc(desc) + "</span>" +
+        '<span class="tool-go">打开 ›</span>' +
+      "</button>";
+    }).join("") + "</div>";
+  }
+
+  function addPluginNav(spec) {
+    // 名字是历史遗留：现在不往侧栏加按钮了，只刷新入口与工具空间。
+    syncToolsEntry();
+    if (state.view === "tools") renderToolsPage();
+    else if (state.view === "plugin:" + spec.id) syncNav();
   }
 
   function mountPlugin(id) {
     var host = $("#pluginHost");
     if (!host) return;
     var spec = PLUG.views[id];
+    var crumb = $("#pluginCrumb");
+    if (crumb) crumb.textContent = (spec && spec.title) || "工具";
     if (!spec) {
       host.innerHTML = '<div class="list-empty"><b>视图没加载出来</b>' +
         "没有找到 id 为 " + esc(id) + " 的视图，插件脚本可能加载失败了。</div>";
@@ -1153,7 +1339,10 @@
 
   function applyView(name) {
     if (!name) return false;
-    if (name === "schedule" || name === "items") { switchView(name); return true; }
+    if (name === "schedule" || name === "items" || name === "tools") {
+      switchView(name);
+      return true;
+    }
     if (name.indexOf("plugin:") === 0) {
       if (PLUG.views[name.slice(7)]) { switchView(name); return true; }
       pendingView = name;                 // 脚本还没加载完，等注册完再切
@@ -1164,6 +1353,7 @@
 
   function loadPluginViews(list) {
     PLUG.manifest = list || [];
+    syncToolsEntry();                     // 有插件才显示侧栏的「工具」
     PLUG.manifest.forEach(function (v) {
       if (!v.id) return;
       if (v.style) {
@@ -1188,6 +1378,96 @@
       };
       document.head.appendChild(s);
     });
+  }
+
+  // ---------------------------------------------------------------- 插件能力
+  //
+  // 插件之间不该互相 import。深度搜索想知道「能不能把磁力交给下载器」，
+  // 但它不该知道那个插件叫 linkwake，更不该抄一份它的接口。
+  //
+  // 于是有这么一张很薄的登记表：某个插件说「link.wake 这件事我能办」，
+  // 任何脚本都可以 invoke；没装的时候 can() 是 false，调用方自己退化成
+  // 「复制链接」。主程序在这里只做转发，不认识任何一个具体的能力名。
+  var CAPS = {};
+
+  function provideCap(name, fn) {
+    if (!name || typeof fn !== "function") return false;
+    CAPS[String(name)] = fn;
+    return true;
+  }
+
+  function hasCap(name) {
+    return typeof CAPS[String(name)] === "function";
+  }
+
+  function invokeCap(name, payload) {
+    var fn = CAPS[String(name)];
+    if (typeof fn !== "function") return false;
+    try {
+      return fn(payload) !== false;
+    } catch (e) {
+      if (window.console) console.warn("[ARR] " + name + " 处理失败：" + e.message);
+      return false;
+    }
+  }
+
+  // ------------------------------------------------------------- 快捷搜索栏
+  //
+  // 侧栏顶上那条。插件认领之后才出现：没装深度搜索的人不该看到一条点不动
+  // 的搜索框。认领的插件自己决定按回车干什么，主程序只负责把词递过去。
+  var QUICK = { claims: [] };
+
+  function syncQuickBar() {
+    var box = $("#quickBox");
+    if (!box) return;
+    var list = QUICK.claims;
+    box.hidden = list.length === 0;
+    if (!list.length) return;
+    var cur = list[0];
+    var inp = $("#quickQ");
+    if (inp) {
+      inp.placeholder = cur.placeholder || (cur.label || "") + "…";
+      inp.title = cur.hint || "";
+    }
+    var sel = $("#quickSrc");
+    if (sel) {
+      sel.hidden = list.length < 2;
+      if (list.length >= 2) {
+        sel.innerHTML = list.map(function (c) {
+          return '<option value="' + esc(c.id) + '">' + esc(c.label || c.id) +
+            "</option>";
+        }).join("");
+      }
+    }
+  }
+
+  function runQuick() {
+    var inp = $("#quickQ");
+    if (!inp) return;
+    var q = inp.value.trim();
+    if (!q) { inp.focus(); return; }
+    var list = QUICK.claims;
+    if (!list.length) return;
+    var sel = $("#quickSrc");
+    var id = sel && !sel.hidden ? sel.value : "";
+    var claim = list.filter(function (c) { return c.id === id; })[0] || list[0];
+    inp.value = "";
+    try {
+      claim.submit(q);
+    } catch (e) {
+      toast("搜索没能打开：" + (e.message || e));
+    }
+  }
+
+  function claimQuick(spec) {
+    if (!spec || !spec.id || typeof spec.submit !== "function") {
+      if (window.console) console.warn("[ARR] quickSearch 需要 id 和 submit(q)");
+      return false;
+    }
+    QUICK.claims = QUICK.claims.filter(function (c) { return c.id !== spec.id; });
+    QUICK.claims.push(spec);
+    syncQuickBar();
+    return true;
   }
 
   var ARR = {
@@ -1223,7 +1503,15 @@
     toast: toast,
     esc: esc,
     api: { get: get, send: send },
-    openItem: openItem
+    openItem: openItem,
+    // 插件之间协作（见上面「插件能力」）
+    provide: provideCap,
+    can: hasCap,
+    invoke: invokeCap,
+    // 跳到某个视图（插件想带用户去自己那一页时用）
+    openView: function (id) { return applyView("plugin:" + id); },
+    // 认领侧栏顶部那条快捷搜索
+    quickSearch: claimQuick
   };
   window.ARR = ARR;
 
@@ -1247,11 +1535,16 @@
     state.view = v;
     var isPlugin = v.indexOf("plugin:") === 0;
     $("#app").classList.toggle("schedule-mode", v === "schedule");
+    $("#app").classList.toggle("tools-mode", v === "tools");
     $("#app").classList.toggle("plugin-mode", isPlugin);
     if (v === "schedule") {
       closeSidebar();
       syncNav();
       loadSchedule(false);
+    } else if (v === "tools") {
+      closeSidebar();
+      renderToolsPage();
+      syncNav();
     } else if (isPlugin) {
       closeSidebar();
       syncNav();
@@ -1590,6 +1883,10 @@
           switchView("schedule");
           return;
         }
+        if (el.dataset.nav === "tools") {
+          switchView("tools");
+          return;
+        }
         if (state.view !== "items") switchView("items");
         state.filter = el.dataset.nav;
         state.feed = "all";
@@ -1600,6 +1897,27 @@
         loadItems(true);
       });
     });
+
+    // 侧栏分组折叠：点标题收起该组，点「＋」不触发。
+    // 绑在侧栏而不是 .side-scroll 上 —— 「工具」那一组在滚动区外面。
+    var sideBar = $("#sidebar");
+    if (sideBar) {
+      sideBar.addEventListener("click", function (e) {
+        var t = e.target.closest("[data-fold]");
+        if (!t) return;
+        if (e.target.closest("button")) return;      // ＋ 是它自己的事
+        toggleFold(t);
+      });
+    }
+
+    // 侧栏顶部的快捷搜索：插件认领后才会出现，回车交给认领者
+    var quickInp = $("#quickQ");
+    if (quickInp) {
+      quickInp.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") { e.preventDefault(); runQuick(); }
+        else if (e.key === "Escape") quickInp.blur();
+      });
+    }
 
     // 频道点击（含删除）
     document.addEventListener("click", function (e) {
@@ -1668,6 +1986,16 @@
       }
     });
 
+    // 列表头的频道内筛选：只改当前这个关注 / 频道的，不碰「全部条目」那一条
+    var listFilter = $("#listFilter");
+    if (listFilter) {
+      listFilter.addEventListener("click", function (e) {
+        var b = e.target.closest("[data-ff]");
+        if (!b || b.classList.contains("on")) return;
+        setActiveFilter(b.dataset.ff);
+      });
+    }
+
     // 列表
     $("#listBody").addEventListener("click", function (e) {
       var act = e.target.closest("[data-action]");
@@ -1676,10 +2004,7 @@
         if (act.dataset.action === "reload") { loadItems(true); return; }
         if (act.dataset.action === "showAll") {
           // 只清筛选，不动频道：用户还在这个关注里
-          state.filter = "all";
-          localStorage.setItem("arr.filter", "all");
-          syncNav();
-          loadItems(true);
+          setActiveFilter("all");
           return;
         }
       }
@@ -1873,6 +2198,14 @@
     $("#btnSchRefreshM").addEventListener("click", function () { loadSchedule(true); });
     $("#btnSchSources").addEventListener("click", showSchSources);
     $("#schSrcClose").addEventListener("click", function () { closeModal("#modalSchSrc"); });
+
+    // 工具空间
+    $("#btnMenuTools").addEventListener("click", openSidebar);
+    $("#btnBackTools").addEventListener("click", function () { switchView("tools"); });
+    $("#toolsBody").addEventListener("click", function (e) {
+      var card = e.target.closest("[data-tool]");
+      if (card) switchView("plugin:" + card.dataset.tool);
+    });
 
     $("#schChips").addEventListener("click", function (e) {
       var chip = e.target.closest("[data-plat]");

@@ -416,12 +416,14 @@ class Store:
             starred = self._db.execute(
                 "SELECT COUNT(*) c FROM items WHERE starred=1").fetchone()["c"]
             per = self._db.execute(
-                "SELECT feed_id, COUNT(*) c, SUM(read=0) u FROM item_feeds"
-                " JOIN items ON items.id=item_feeds.item_id GROUP BY feed_id"
+                "SELECT feed_id, COUNT(*) c, SUM(read=0) u, SUM(starred=1) s"
+                " FROM item_feeds JOIN items ON items.id=item_feeds.item_id"
+                " GROUP BY feed_id"
             ).fetchall()
         return {
             "total": total, "unread": unread, "starred": starred,
-            "feeds": {r["feed_id"]: {"total": r["c"], "unread": r["u"] or 0} for r in per},
+            "feeds": {r["feed_id"]: {"total": r["c"], "unread": r["u"] or 0,
+                                     "starred": r["s"] or 0} for r in per},
             "watches": self.watch_counts(),
         }
 
@@ -619,10 +621,11 @@ class Store:
         now = int(time.time())
         with self._lock:
             rows = self._db.execute(
-                "SELECT w.watch_id wid, COUNT(*) c, SUM(i.read=0) u"
+                "SELECT w.watch_id wid, COUNT(*) c, SUM(i.read=0) u, SUM(i.starred=1) s"
                 " FROM watch_items w JOIN items i ON i.id=w.item_id"
                 " WHERE w.expires>? GROUP BY w.watch_id", (now,)).fetchall()
-        return {r["wid"]: {"total": r["c"], "unread": r["u"] or 0} for r in rows}
+        return {r["wid"]: {"total": r["c"], "unread": r["u"] or 0,
+                           "starred": r["s"] or 0} for r in rows}
 
     # ------------------------------------------------------------ 状态变更
     def set_read(self, ids, read=True):
